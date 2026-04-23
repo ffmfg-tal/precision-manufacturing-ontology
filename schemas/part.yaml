@@ -1,0 +1,353 @@
+# schemas/part.yaml
+#
+# Layer-1 coverage: STEP AP242 (ISO 10303-242) defines part geometry, BOM structure,
+# and product identification (P/N, revision, CAGE code). It does NOT define approval
+# state, ITAR classification, FAI status, or source-inspection requirements.
+#
+# Prose source: reference/domain-map.md §2 (Parts and Structures),
+#               reference/composition-archetypes.md (all three archetypes)
+#
+# Architectural decisions:
+#   Decision 1.1: assembly is a DISTINCT entity from part; no shared supertype
+#   Decision 1.2: part.part_kind enum (machined | fastener | raw_stock | purchased_assembly | consumable)
+#   Decision 1.9: item REMOVED from canon; part | assembly is the typed union used by
+#                 first_article_inspection, nonconformance_report, etc.
+#
+# Entities: part, assembly, part_specification, bom_line
+
+entities:
+
+  part:
+    description: >
+      A single machined, fabricated, or purchased article identified by a part number
+      and revision. Corresponds to STEP AP242 PRODUCT entity. Covers standalone parts
+      only; assemblies are a distinct entity type per Decision 1.1.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system item master on first receipt of this P/N+rev
+      part_number:
+        type: string
+        required: true
+        description: Customer-assigned part number (as it appears on the drawing title block)
+        examples: ["7832-001", "ABC-4157-002", "12345678-1"]
+      revision:
+        type: string
+        required: true
+        description: Drawing revision letter or number
+        examples: ["A", "B", "Rev 3", "-"]
+      cage_code:
+        type: string
+        required: false
+        description: CAGE code of the design activity (the organization that owns the drawing)
+        examples: ["1KBG3", "99999"]
+      customer_id:
+        type: uuid
+        required: false
+        description: FK → customer.id — the customer who ordered this part
+      part_kind:
+        type: enum
+        required: true
+        values: [machined, fastener, raw_stock, purchased_assembly, consumable]
+        description: >
+          Classification of the part type. machined = CNC/EDM/grind; fastener = bolt/nut/pin/rivet;
+          raw_stock = material in its as-received form; purchased_assembly = OTS assembly (e.g., bearing);
+          consumable = O-ring, shim, label.
+      description:
+        type: string
+        required: false
+        examples: ["Bracket, Mounting, Aft Payload Bay", "Fitting, Hydraulic, 90-deg Elbow"]
+      itar_controlled:
+        type: boolean
+        required: true
+        description: True if this part is ITAR-controlled technical data; drives data handling rules
+      usml_category_id:
+        type: uuid
+        required: false
+        description: FK → usml_category.id — USML category if itar_controlled = true
+      export_classification_id:
+        type: uuid
+        required: false
+        description: FK → export_classification.id — EAR/ITAR classification record
+      part_specification_id:
+        type: uuid
+        required: false
+        description: FK → part_specification.id — the governing drawing/spec
+      fai_status:
+        type: enum
+        required: true
+        values: [Not_Required, Required, In_Progress, Submitted, Approved, Expired]
+        description: First Article Inspection approval state for this P/N+rev at the shop
+      source_inspection_required:
+        type: boolean
+        required: true
+        description: True if the customer requires source inspection at the manufacturer's facility
+
+    relationships:
+      specified_by:
+        target: part_specification
+        cardinality: many-to-one
+        description: Governing drawing/specification
+      has_classification:
+        target: export_classification
+        cardinality: many-to-one
+        description: Export control classification record
+      has_approval:
+        target: customer_approval
+        cardinality: one-to-many
+        description: Customer approval records (one per customer who has approved this P/N)
+      appears_in_bom:
+        target: bom_line
+        cardinality: one-to-many
+        description: BOM line entries where this part appears as a child
+      has_bom_lines:
+        target: bom_line
+        cardinality: one-to-many
+        description: BOM lines for which this part is the parent (part can have sub-parts if purchased_assembly)
+
+  assembly:
+    description: >
+      A joined product composed of two or more parts (and possibly sub-assemblies).
+      Assembly is a distinct entity from part per Decision 1.1: it carries torque specs,
+      fastener sequences, witness-inspection signoffs, and an assembly-level FAI.
+      An assembly has its own serial number, certification package, and shipment record.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system item master on first receipt of this assembly P/N+rev
+      assembly_number:
+        type: string
+        required: true
+        description: Customer-assigned assembly part number
+        examples: ["ASSY-7832-TOP", "ATA-100-0012"]
+      revision:
+        type: string
+        required: true
+        description: Drawing revision for the assembly-level drawing
+      cage_code:
+        type: string
+        required: false
+        description: CAGE code of the design activity
+      customer_id:
+        type: uuid
+        required: false
+        description: FK → customer.id
+      description:
+        type: string
+        required: false
+        examples: ["Assembly, Thrust Structure, Upper Stage", "Panel Assembly, Payload Separation"]
+      itar_controlled:
+        type: boolean
+        required: true
+      usml_category_id:
+        type: uuid
+        required: false
+        description: FK → usml_category.id — if itar_controlled = true
+      export_classification_id:
+        type: uuid
+        required: false
+        description: FK → export_classification.id
+      part_specification_id:
+        type: uuid
+        required: false
+        description: FK → part_specification.id — the assembly-level drawing
+      fai_status:
+        type: enum
+        required: true
+        values: [Not_Required, Required, In_Progress, Submitted, Approved, Expired]
+        description: >
+          AS9102 Rev C FAI status for this assembly. Assembly FAI is distinct from
+          constituent part FAIs; it covers Form 1 (assembly P/N accountability) and
+          Form 3 characteristics defined on the assembly drawing.
+      source_inspection_required:
+        type: boolean
+        required: true
+      torque_specification_id:
+        type: uuid
+        required: false
+        description: FK → torque_specification.id — governs fastener installation sequences
+      assembly_routing_id:
+        type: uuid
+        required: false
+        description: FK → assembly_routing.id — the assembly operation sequence
+
+    relationships:
+      composed_of:
+        target: bom_line
+        cardinality: one-to-many
+        description: BOM lines listing constituent parts and sub-assemblies
+      specified_by:
+        target: part_specification
+        cardinality: many-to-one
+      has_classification:
+        target: export_classification
+        cardinality: many-to-one
+      has_approval:
+        target: customer_approval
+        cardinality: one-to-many
+      has_routing:
+        target: assembly_routing
+        cardinality: many-to-one
+      appears_in_bom:
+        target: bom_line
+        cardinality: one-to-many
+        description: BOM line entries where this assembly appears as a child in a parent assembly
+
+  part_specification:
+    description: >
+      The governing drawing and associated specification set for a part or assembly.
+      Corresponds to the customer drawing title block: drawing number, revision, design
+      activity CAGE, and references to STEP AP242 and 2D PDF representations.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when drawing first entered into the manufacturer system
+      drawing_number:
+        type: string
+        required: true
+        description: Drawing number (may differ from part number on multi-part drawings)
+        examples: ["7832-001", "DWG-ABC-4157", "12345678"]
+      revision:
+        type: string
+        required: true
+        examples: ["A", "B", "Rev 3"]
+      design_activity_cage:
+        type: string
+        required: false
+        description: CAGE code of the organization that created the drawing
+      title:
+        type: string
+        required: false
+        description: Part/assembly name from drawing title block
+        examples: ["Bracket, Mounting, Aft Payload Bay"]
+      drawing_date:
+        type: date
+        required: false
+        description: Date the drawing revision was released
+      model_based_definition:
+        type: boolean
+        required: true
+        description: >
+          True if this is an MBD drawing with STEP AP242 PMI (Product and Manufacturing
+          Information) embedded in the 3D model. False if the primary deliverable is a
+          2D PDF or paper drawing.
+      step_ap242_file_ref:
+        type: string
+        required: false
+        description: Path or URL to the STEP AP242 file (when model_based_definition = true)
+        examples: ["drawings/7832-001-RevA.stp", "s3://ffm-drawings/itar/7832-001-RevA.stp"]
+      pdf_file_ref:
+        type: string
+        required: false
+        description: Path or URL to the 2D PDF drawing
+        examples: ["drawings/7832-001-RevA.pdf"]
+      governing_specifications:
+        type: string[]
+        required: false
+        description: >
+          Referenced specifications called out on the drawing (e.g., surface finish,
+          tolerance standard, welding spec). Does NOT include material specifications —
+          those are captured in material_specification entities.
+        examples: [["ASME Y14.5-2018", "MIL-STD-130 (marking)", "AWS D17.1 (welding)"]]
+      distribution_statement:
+        type: enum
+        required: false
+        values: [Unlimited, Export_Controlled_EAR, ITAR_Controlled, CUI, FOUO, Proprietary]
+        description: Drawing distribution statement — governs who can receive a copy
+
+    relationships:
+      specifies_part:
+        target: part
+        cardinality: one-to-many
+      specifies_assembly:
+        target: assembly
+        cardinality: one-to-many
+
+  bom_line:
+    description: >
+      A Bill of Materials line item representing a parent–child relationship in a product
+      structure. Carries quantity, unit of measure, find number, and effectivity. The
+      parent is a part or assembly; the child is a part, assembly, or material.
+      Implements the STEP AP242 NEXT_ASSEMBLY_USAGE_OCCURRENCE relationship with
+      manufacturer-layer additions (find number, effectivity, reference designators).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when BOM line entered into the production system item routing
+      parent_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — the top-level article being built
+      parent_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator for parent_id polymorphic FK
+      child_id:
+        type: uuid
+        required: true
+        description: FK → part.id, assembly.id, or material.id — what goes into the parent
+      child_type:
+        type: enum
+        required: true
+        values: [part, assembly, material]
+        description: Discriminator for child_id polymorphic FK
+      find_number:
+        type: string
+        required: false
+        description: Balloon number or find number on the assembly drawing
+        examples: ["1", "5", "12A"]
+      quantity:
+        type: decimal
+        required: true
+        description: Quantity of child per one parent
+        examples: [1, 4, 0.5]
+      uom:
+        type: string
+        required: true
+        description: Unit of measure
+        examples: ["EA", "IN", "FT", "LB", "M"]
+      reference_designators:
+        type: string[]
+        required: false
+        description: Reference designators when the same child appears in multiple positions
+        examples: [["B1", "B2", "B3", "B4"]]
+      effectivity_start:
+        type: string
+        required: false
+        description: Effectivity start — serial number or lot number at which this line becomes active
+        examples: ["SN-0001", "Lot 3"]
+      effectivity_end:
+        type: string
+        required: false
+        description: Effectivity end — serial number or lot number at which this line expires
+        examples: ["SN-0099"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      parent_part:
+        target: part
+        cardinality: many-to-one
+        description: When parent_type = part
+      parent_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: When parent_type = assembly
+      child_part:
+        target: part
+        cardinality: many-to-one
+        description: When child_type = part
+      child_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: When child_type = assembly
+      child_material:
+        target: material
+        cardinality: many-to-one
+        description: When child_type = material

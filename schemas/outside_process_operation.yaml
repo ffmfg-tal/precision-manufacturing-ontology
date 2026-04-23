@@ -1,0 +1,460 @@
+# schemas/outside_process_operation.yaml
+#
+# Layer-1 coverage: NONE.
+#   STEP AP238 has no schema for operations that leave the building.
+#   MTConnect produces data only for in-house machines; outside processing creates a
+#   structural gap in the machine data timeline.
+#   X12 EDI tracks the customer→manufacturer relationship; there is no standard linkage mechanism
+#   for the manufacturer→sub-tier vendor transactions or linkage to the originating job.
+#
+# Prose source: extensions/outside-processing.md
+#
+# Architectural decisions:
+#   outside_process_operation is a HYBRID entity: simultaneously a routing operation
+#   (sequence number, status, scheduling), a procurement transaction (vendor FK, PO ref,
+#   cost), and a certification collection event (cert types required, certs received).
+#   This is the manufacturer-layer answer to the gap that STEP AP238 and MTConnect leave wherever
+#   a part leaves the manufacturer's physical control.
+#
+#   Scope split — process_certification vs certification_document (schemas/certification_document.yaml):
+#   process_certification = vendor process conformance certs (heat treat CoC, process charts,
+#     NDT reports, thickness/hardness surveys) — attests that a PROCESS was performed on parts.
+#   certification_document = material and regulatory certs (MTR, material CoC, DFARS Declaration,
+#     PMI Report) — attests to MATERIAL composition, traceability, and regulatory compliance.
+#   Decision 1.6 consolidated material certs under certification_document; process certs are
+#   a separate domain and are not absorbed.
+#
+#   FK note — purchase_order vs sub_tier_purchase_order:
+#   The relationship graph carries two edges from outside_process_operation:
+#     issued_via → sub_tier_purchase_order (from archetypes)
+#     issued_via_po → purchase_order (from extension prose)
+#   These reflect an unresolved entity-matrix question about whether sub_tier_purchase_order
+#   is a subtype of purchase_order. This schema uses sub_tier_purchase_order_id as the FK
+#   (the more specific reference) and defers the supertype question to Phase 3.2 matrix regen.
+#
+# Entities: outside_process_operation, process_specification, process_certification
+
+entities:
+
+  outside_process_operation:
+    description: >
+      A manufacturing operation performed by a vendor off-site. The entity is hybrid: it
+      carries routing-operation attributes (sequence number, status, scheduling), procurement
+      attributes (vendor FK, PO reference, cost), and certification-collection attributes
+      (which cert types are required, which have been received). The hybrid design closes the
+      traceability gap between a job routing and the vendor certification documents that return
+      with the parts — the gap that STEP AP238 and MTConnect cannot bridge wherever parts leave
+      the manufacturer's physical control.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system at job creation when the routing is assigned to the job
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id — the production job this operation belongs to
+      routing_id:
+        type: uuid
+        required: false
+        description: FK → routing.id — the routing template this execution instance derives from
+      sequence_number:
+        type: integer
+        required: true
+        description: Operation order in the job routing (e.g., 30 for the third op)
+        examples: [30, 50]
+      operation_name:
+        type: string
+        required: true
+        description: Human-readable operation name
+        examples: ["Heat Treat H1025 per AMS 2759/3", "Type II Anodize per AMS 2471", "FPI per ASTM E1417", "Passivation per AMS 2700"]
+      process_category:
+        type: enum
+        required: true
+        values: [HeatTreat, ChemProcess, Plating, Coating, NDT, Welding, Other]
+        description: High-level category used to match vendor capabilities and Nadcap accreditation scope
+      process_specification_id:
+        type: uuid
+        required: true
+        description: FK → process_specification.id — the AMS/MIL/ASTM spec governing this operation
+      condition_required:
+        type: string
+        required: false
+        description: Named condition or class within the spec
+        examples: ["H1025", "Type II Class 1", "Class A Grade C"]
+      nadcap_required:
+        type: boolean
+        required: true
+        description: Whether Nadcap accreditation is contractually required for this operation (driven by quality flowdown QA-013)
+      nadcap_category:
+        type: string
+        required: false
+        description: Nadcap audit category code; must match the supplier's accredited scope before PO is issued
+        examples: ["HT", "CP", "NDT", "WLD", "CT"]
+      supplier_id:
+        type: uuid
+        required: true
+        description: FK → supplier.id — the selected outside processor
+      sub_tier_purchase_order_id:
+        type: uuid
+        required: false
+        description: >
+          FK → purchase_order.id (po_kind: sub_tier) — the sub-tier PO issued to the supplier for
+          this operation. Per Decision 1.4, sub_tier_purchase_order is an alias for purchase_order
+          with po_kind: sub_tier; the FK will be renamed to purchase_order_id in Phase 3.2 matrix regen.
+      purchase_order_number:
+        type: string
+        required: false
+        description: shop internal PO number (human-readable cross-reference)
+      supplier_job_number:
+        type: string
+        required: false
+        description: Supplier's internal job or work order tracking number
+      scheduled_ship_date:
+        type: date
+        required: false
+        description: Planned date parts leave the shop
+      promised_return_date:
+        type: date
+        required: false
+        description: Vendor's committed return date
+      actual_ship_date:
+        type: date
+        required: false
+      actual_return_date:
+        type: date
+        required: false
+      quantity_sent:
+        type: integer
+        required: false
+        description: Number of pieces shipped to supplier; may be less than job quantity for partial sends
+      quantity_returned:
+        type: integer
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Scheduled, ShippedOut, AtVendor, Returned, Complete, Rejected, Cancelled]
+      certifications_required:
+        type: string[]
+        required: false
+        description: Cert types the supplier must provide (e.g., ["CoC", "ProcessChart", "NDT_Report"])
+      certification_complete:
+        type: boolean
+        required: true
+        description: True when all required certifications have been received and linked in the production system
+      po_unit_price:
+        type: number
+        required: false
+        description: Per-piece price on the purchase order
+      po_currency:
+        type: string
+        required: false
+        description: ISO 4217 currency code
+        examples: ["USD"]
+      actual_cost:
+        type: number
+        required: false
+        description: Final invoiced cost for this outside process operation
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_job:
+        target: job
+        cardinality: many-to-one
+      runs_spec:
+        target: process_specification
+        cardinality: many-to-one
+      has_supplier:
+        target: supplier
+        cardinality: many-to-one
+      issued_via:
+        target: sub_tier_purchase_order
+        cardinality: many-to-one
+        description: Sub-tier purchase order issued to the supplier
+      ships_out_via:
+        target: shipment
+        cardinality: many-to-one
+        description: Outbound shipment record when parts leave the shop
+      returns_with:
+        target: shipment_inbound
+        cardinality: many-to-one
+        description: Inbound receiving record when parts return from supplier
+      results_in:
+        target: process_certification
+        cardinality: one-to-many
+        description: Process certification documents collected from supplier on return
+      tracks_items_at_supplier:
+        target: serial_number
+        cardinality: one-to-many
+        description: Serial numbers currently at the supplier for this operation
+      flows_down_clause:
+        target: quality_clause
+        cardinality: one-to-many
+        description: Quality clauses flowed down to the supplier PO (e.g., QA-003, QA-013, QA-014)
+
+    state_machine:
+      description: >
+        Outside process operation lifecycle from routing definition through cert verification.
+        Tracks the physical movement of parts to and from the supplier and the certification
+        collection obligation. Terminal states are Complete (all certs verified), Rejected
+        (process failure or non-conforming return), and Cancelled.
+      initial_state: Scheduled
+      terminal_states: [Complete, Rejected, Cancelled]
+      states:
+        Scheduled:
+          description: Operation defined in the job routing; sub-tier PO not yet issued; parts not yet shipped
+        ShippedOut:
+          description: Parts shipped from the manufacturer to supplier on an outbound shipment record; PO issued
+        AtVendor:
+          description: Supplier has confirmed receipt; process work in progress at the supplier facility
+        Returned:
+          description: Parts returned from supplier with process certifications; cert verification pending
+        Complete:
+          description: All required certifications received and verified; certification_complete = true; operation closed
+        Rejected:
+          description: Parts returned non-conforming or supplier reports process failure; NCR required; terminal state
+        Cancelled:
+          description: Operation cancelled before completion (job cancellation, supplier substitution, customer direction); terminal state
+      transitions:
+        - from: Scheduled
+          to: ShippedOut
+          trigger: Outbound shipment created and departed the manufacturer for the supplier
+          guard: sub_tier_purchase_order_id set; quantity_sent > 0; shipment record created
+        - from: Scheduled
+          to: Cancelled
+          trigger: Job cancelled or operation removed from routing before shipment
+        - from: ShippedOut
+          to: AtVendor
+          trigger: Supplier confirms receipt of parts (email, supplier portal, or phone confirmation logged)
+        - from: ShippedOut
+          to: Returned
+          trigger: Parts returned from supplier without explicit receipt confirmation step
+        - from: ShippedOut
+          to: Cancelled
+          trigger: Parts recalled before supplier acceptance (rare — shipment error or PO cancellation)
+        - from: AtVendor
+          to: Returned
+          trigger: Supplier ships parts back to the manufacturer with process certifications
+          guard: actual_return_date set; inbound shipment or receipt record created
+        - from: AtVendor
+          to: Rejected
+          trigger: Supplier reports process failure (e.g., overtemperature, bath contamination) before parts return
+        - from: Returned
+          to: Complete
+          trigger: All required certifications received, logged, and verified at receiving inspection
+          guard: certification_complete = true; all cert_types in certifications_required are present and linked
+        - from: Returned
+          to: Rejected
+          trigger: Certifications missing or incorrect after receipt, OR parts found non-conforming at receiving inspection
+          guard: NCR created against this outside_process_operation or its associated serial numbers
+
+  process_specification:
+    description: >
+      A published standard defining the requirements for a special manufacturing process —
+      chemistry, time/temperature cycles, acceptance criteria, documentation requirements.
+      Process specifications are referenced by outside_process_operations (and by in-house
+      operations for special processes such as in-house NDT) and drive vendor qualification:
+      the vendor must hold an approved procedure for the spec before receiving the PO.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when spec is ingested into manufacturer process specification library
+      spec_number:
+        type: string
+        required: true
+        description: Specification number as published
+        examples: ["AMS 2759/3", "AMS 2700", "AMS 2471", "ASTM E1417", "MIL-A-8625", "NASM 33540"]
+      spec_body:
+        type: enum
+        required: true
+        values: [AMS, MIL_SPEC, ASTM, NASM, Boeing, Pratt, Honeywell, Other_OEM, Internal]
+        description: Issuing standards body or customer
+      title:
+        type: string
+        required: true
+        description: Full specification title
+        examples: ["Heat Treatment of Corrosion and Heat-Resistant Steel Parts", "Passivation of Corrosion-Resistant Steel"]
+      revision:
+        type: string
+        required: false
+      process_category:
+        type: enum
+        required: true
+        values: [HeatTreat, ChemProcess, Plating, Coating, NDT, Welding, Fastening, Other]
+      nadcap_category:
+        type: string
+        required: false
+        description: Corresponding Nadcap audit scope code for this spec
+        examples: ["HT", "CP", "NDT", "WLD"]
+      applicable_materials:
+        type: string[]
+        required: false
+        description: Material families this spec applies to
+        examples: [["PH Stainless", "Aluminum", "Titanium"]]
+      documentation_required:
+        type: string[]
+        required: false
+        description: Cert types vendors must produce for this spec (CoC | TestReport | ProcessChart | HardnessSurvey | ThicknessReport | NDT_Report)
+      status:
+        type: enum
+        required: true
+        values: [Active, Superseded, Withdrawn]
+
+    relationships:
+      referenced_by_outside_ops:
+        target: outside_process_operation
+        cardinality: one-to-many
+      referenced_by_in_house_ops:
+        target: operation
+        cardinality: one-to-many
+        description: In-house operations that run this spec (e.g., in-house NDT, in-house passivation)
+      referenced_by_assembly_ops:
+        target: assembly_operation
+        cardinality: one-to-many
+        description: Assembly operations that reference this spec (e.g., NASM 33540 safetying standard)
+
+  process_certification:
+    description: >
+      A document issued by an outside processing vendor certifying that work was performed
+      in conformance with a specified process standard. Distinct from certification_document
+      (schemas/certification_document.yaml): process_certification attests to a PROCESS
+      performed on parts (heat treat cycle, plating thickness, NDT result); certification_document
+      attests to MATERIAL composition, traceability, and regulatory compliance (MTR, material
+      CoC, DFARS Declaration). Process certifications are collected per outside_process_operation;
+      they are included in the job cert package alongside material certification_documents.
+      Subtypes carry flat structured fields for the specific document type — not nested objects,
+      to allow simple JSONB storage in production system custom fields.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the cert is received and logged at receiving
+      outside_process_op_id:
+        type: uuid
+        required: true
+        description: FK → outside_process_operation.id
+      spec_reference_id:
+        type: uuid
+        required: true
+        description: FK → process_specification.id
+      cert_type:
+        type: enum
+        required: true
+        values: [CoC, TestReport, ProcessChart, HardnessSurvey, ThicknessReport, NDT_Report, NadcapCertCopy]
+      issuer:
+        type: string
+        required: true
+        description: Vendor company name
+      issuer_cage:
+        type: string
+        required: false
+        description: Vendor CAGE code
+      issue_date:
+        type: date
+        required: true
+      document_number:
+        type: string
+        required: false
+        description: Vendor's internal certification number
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the cert document PDF stored in the production system
+
+      # CoC subfields (used when cert_type = CoC)
+      coc_conformance_statement:
+        type: string
+        required: false
+        description: Verbatim conformance declaration from the CoC
+      coc_condition_achieved:
+        type: string
+        required: false
+        description: Named condition achieved per the spec
+        examples: ["H1025 per AMS 2759/3", "Type II Class 1 per AMS 2471"]
+      coc_serial_or_lot_numbers:
+        type: string[]
+        required: false
+        description: Serial or lot numbers covered by this CoC
+      coc_quantity:
+        type: integer
+        required: false
+
+      # Process chart subfields (used when cert_type = ProcessChart — heat treat time-temperature record)
+      chart_furnace_id:
+        type: string
+        required: false
+        description: Vendor furnace identifier
+      chart_cycle_type:
+        type: string
+        required: false
+        description: Heat treatment cycle type
+        examples: ["Aging", "Solution + Aging", "Stress Relief", "Anneal"]
+      chart_set_temp_f:
+        type: number
+        required: false
+        description: Target temperature in degrees Fahrenheit
+      chart_actual_temp_range_f:
+        type: string
+        required: false
+        description: Actual recorded temperature range from chart
+        examples: ["1022–1028°F"]
+      chart_hold_time_minutes:
+        type: integer
+        required: false
+        description: Hold time at temperature in minutes
+      chart_quench_method:
+        type: string
+        required: false
+        examples: ["Air cool", "Water quench", "Oil quench", "Forced air cool"]
+      chart_thermocouple_calibration_date:
+        type: date
+        required: false
+
+      # NDT subfields (used when cert_type = NDT_Report)
+      ndt_method:
+        type: enum
+        required: false
+        values: [FPI, MPI, UT, RT, ET]
+        description: NDT method used
+      ndt_procedure_number:
+        type: string
+        required: false
+        description: Vendor's written procedure governing this inspection
+      ndt_inspection_result:
+        type: enum
+        required: false
+        values: [Accept, Reject, Conditional]
+      ndt_indications_found:
+        type: string[]
+        required: false
+        description: Descriptions of any indications found; empty array if no indications
+
+      # Thickness/hardness survey subfields (used when cert_type = HardnessSurvey or ThicknessReport)
+      survey_measurement_type:
+        type: enum
+        required: false
+        values: [Coating_Thickness, Hardness, Conductivity]
+      survey_measurement_locations:
+        type: integer
+        required: false
+        description: Number of measurement points recorded
+      survey_results_summary:
+        type: string
+        required: false
+        description: Summary of results
+        examples: ["0.0008–0.0012 in. hard chrome per AMS 2460", "32–36 HRC at 5 locations"]
+      survey_all_within_spec:
+        type: boolean
+        required: false
+
+    relationships:
+      for_outside_op:
+        target: outside_process_operation
+        cardinality: many-to-one
+      references_spec:
+        target: process_specification
+        cardinality: many-to-one

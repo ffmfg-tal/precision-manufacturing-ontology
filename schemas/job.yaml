@@ -1,0 +1,416 @@
+# schemas/job.yaml
+#
+# Layer-1 coverage:
+#   MTConnect WorkOrder element references production job UUID and serial UUID.
+#   QIF measurement plan/results reference job UUID and serial UUID via extension fields.
+#   X12 856 ASN carries job UUID in REF*ZZ segment; serial in SN1 segment.
+#   No Layer-1 standard defines the job or serial_number entity at the manufacturer layer —
+#   these are the manufacturer's Layer-2 execution containers.
+#
+# Prose source: extensions/uuid-discipline.md (UUID assignment rules and format-translation
+#               survival requirements), reference/composition-archetypes.md (all three archetypes)
+#
+# Architectural decisions:
+#   job.subject_type: enum [part, assembly] — follows the polymorphic FK pattern
+#     established across the ontology (no item entity per Decision 1.9).
+#     A job produces either parts (machined, purchased_assembly, etc.) or assemblies.
+#   work_order is the EXECUTION INSTANCE of an operation (from schemas/routing.yaml) on a
+#     specific job; distinct from operation (the routing template).
+#     operation defines WHAT to do and WHERE; work_order records WHEN, by WHOM, and how long.
+#     The work_order UUID maps to MTConnect WorkOrder OperationId, making it the cross-system
+#     identity carrier for individual machine events at the operation level.
+#   machine_event edges live on work_order (execution context), not on operation (template).
+#
+# Entities: job, serial_number, work_order
+
+entities:
+
+  job:
+    description: >
+      A production run of a specific part or assembly. The job is the central organizing
+      entity of the digital thread: it links the design (part/assembly), the routing
+      (operations to be performed), the quality flowdown (clauses inherited from the
+      customer PO), and the produced units (serial numbers). The job UUID is the primary
+      cross-system identity carrier — it travels in MTConnect WorkOrder elements, QIF
+      document extension fields, and X12 ASN REF*ZZ segments.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the job is created; canonical cross-system identifier for this production run
+      job_number:
+        type: string
+        required: true
+        description: Human-readable job number as displayed in the production system and on shop paperwork
+        examples: ["25-0412", "JOB-2025-0412"]
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id depending on subject_type (Decision 1.9 typed-union pattern)
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator for the polymorphic FK to part or assembly
+      customer_id:
+        type: uuid
+        required: false
+        description: FK → customer.id
+      customer_purchase_order_id:
+        type: uuid
+        required: false
+        description: FK → customer_purchase_order.id — the originating customer PO line
+      sales_order_id:
+        type: uuid
+        required: false
+        description: FK → sales_order.id — the the manufacturer sales order this job was created under
+      quantity:
+        type: integer
+        required: true
+        description: Total quantity to produce on this job
+      quantity_complete:
+        type: integer
+        required: true
+        description: Units that have passed final inspection and are ready to ship
+      quantity_scrapped:
+        type: integer
+        required: false
+        description: Units scrapped; nonconformance_reports should exist for each scrapped unit
+      status:
+        type: enum
+        required: true
+        values: [Planned, Released, Material_Issued, In_Production, On_Hold, Complete, Shipped, Invoiced, Closed, Cancelled]
+      priority:
+        type: enum
+        required: false
+        values: [Routine, Expedite, Critical]
+      due_date:
+        type: date
+        required: false
+        description: Customer-requested ship date
+      ship_date:
+        type: date
+        required: false
+        description: Actual ship date; populated when job is shipped
+      routing_id:
+        type: uuid
+        required: false
+        description: FK → routing.id — the process plan template for this job
+      quality_flowdown_plan_id:
+        type: uuid
+        required: false
+        description: FK → quality_flowdown_plan.id — quality clause obligations inherited from the customer PO
+      notes:
+        type: string
+        required: false
+
+    state_machine:
+      description: >
+        Job lifecycle from creation through archiving. Guards enforce readiness at key
+        transitions: release requires routing + material + capacity; complete requires all
+        work orders complete and FAI approved (for FAI-required parts). Terminal states
+        are Closed and Cancelled.
+      initial_state: Planned
+      terminal_states: [Closed, Cancelled]
+      states:
+        Planned:
+          description: Job created with routing and quantities; material and capacity not yet committed
+        Released:
+          description: Routing confirmed, material issued or reserved, capacity allocated; first operation may begin
+        Material_Issued:
+          description: >
+            Material lot cut and issued to the job; material_lot_id populated on all serial_numbers.
+            Distinct from Released when material issuance is a separate workflow step (e.g., kitting).
+        In_Production:
+          description: At least one work order has been started; job is on the shop floor
+        On_Hold:
+          description: Production suspended pending resolution of NCR, material question, or customer direction
+        Complete:
+          description: All work orders complete; all required process certifications received; FAI approved if required
+        Shipped:
+          description: All units have been shipped on at least one outbound shipment record
+        Invoiced:
+          description: X12 810 invoice for this job has been transmitted to the customer
+        Closed:
+          description: Job cost reconciled, records archived; terminal state
+        Cancelled:
+          description: Job cancelled before shipment; all work orders voided; terminal state
+      transitions:
+        - from: Planned
+          to: Released
+          trigger: Routing confirmed, material reserved or issued, capacity allocated; release gate passed
+          guard: routing_id set; material_lot available; work center capacity allocated
+        - from: Planned
+          to: Cancelled
+          trigger: Job cancelled before release (customer cancellation or planning decision)
+        - from: Released
+          to: Material_Issued
+          trigger: Physical material cut and issued to job traveler
+        - from: Released
+          to: In_Production
+          trigger: First work order started (when material issuance is not a separate tracked state)
+        - from: Material_Issued
+          to: In_Production
+          trigger: First work order started
+        - from: In_Production
+          to: On_Hold
+          trigger: NCR raised with hold disposition, customer direction, or material anomaly
+        - from: In_Production
+          to: Complete
+          trigger: All work orders complete; all process certifications received; FAI approved if required
+        - from: On_Hold
+          to: In_Production
+          trigger: Hold resolved; work authorized to resume
+        - from: On_Hold
+          to: Cancelled
+          trigger: Hold disposition results in job cancellation (e.g., material scrapped, customer cancels)
+        - from: Complete
+          to: Shipped
+          trigger: Outbound shipment created covering all units
+        - from: Shipped
+          to: Invoiced
+          trigger: X12 810 invoice transmitted
+        - from: Invoiced
+          to: Closed
+          trigger: Payment received and applied; job cost reconciled
+        - from: Complete
+          to: Closed
+          trigger: Job closed without separate invoice (internal jobs, consignment, pre-paid)
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part being produced (when subject_type = part)
+      for_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: Assembly being produced (when subject_type = assembly)
+      uses_routing:
+        target: routing
+        cardinality: many-to-one
+      contains_serial:
+        target: serial_number
+        cardinality: one-to-many
+      contains_work_order:
+        target: work_order
+        cardinality: one-to-many
+        description: Execution instances of each routing operation for this job
+      has_outside_ops:
+        target: outside_process_operation
+        cardinality: one-to-many
+      inherits_clauses:
+        target: quality_clause
+        cardinality: one-to-many
+        description: Quality clauses inherited from the customer PO and applied to this job
+      propagates_to:
+        target: sub_tier_purchase_order
+        cardinality: one-to-many
+        description: Sub-tier POs created for outside-process operations on this job
+
+  serial_number:
+    description: >
+      A single physical unit produced within a job. Each serial number has its own
+      production lifecycle: current work order step, inspection results, and nonconformance
+      history. The serial UUID is the cross-system identity carrier for the physical unit —
+      it travels in QIF SerialNumber headers, X12 856 SN1 segments, and MTConnect serial
+      references. For lot-controlled parts where individual serialization is not required,
+      multiple units may share a lot_id.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system at first operation start or at job open for serialized jobs
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      serial:
+        type: string
+        required: true
+        description: The human-readable serial number string assigned to this unit
+        examples: ["001", "SN-25-0412-003", "A01"]
+      lot_id:
+        type: string
+        required: false
+        description: Lot identifier for lot-controlled parts; multiple serials may share a lot (e.g., same material lot, same heat treat load)
+      status:
+        type: enum
+        required: true
+        values: [Assigned, In_Production, Complete, Quarantined, Reworked, Shipped, Returned, Scrapped]
+      current_work_order_id:
+        type: uuid
+        required: false
+        description: FK → work_order.id — the operation step this unit is currently staged at
+      material_lot_id:
+        type: uuid
+        required: false
+        description: FK → material_lot.id — the material lot consumed to produce this unit (traceability chain anchor)
+      notes:
+        type: string
+        required: false
+
+    state_machine:
+      description: >
+        Individual unit lifecycle from serial assignment through final disposition.
+        Tracks the unit through production, inspection, shipping, and potential RMA return.
+        Scrapped is the only hard terminal state; Shipped can transition to Returned for RMA.
+      initial_state: Assigned
+      terminal_states: [Scrapped]
+      states:
+        Assigned:
+          description: Serial number created and assigned to a job; production has not started on this unit
+        In_Production:
+          description: Unit is being worked on; at least one work order has been started for this serial
+        Complete:
+          description: All work orders complete for this unit; inspection passed; ready to ship
+        Quarantined:
+          description: Unit on hold pending NCR disposition — may be reworked, scrapped, or returned to customer
+        Reworked:
+          description: Rework operation performed per NCR disposition; awaiting re-inspection
+        Shipped:
+          description: Unit shipped to customer on an outbound shipment record
+        Returned:
+          description: Unit returned by customer (RMA); back at the shop for disposition
+        Scrapped:
+          description: Unit scrapped per NCR disposition or end-of-life; terminal state
+      transitions:
+        - from: Assigned
+          to: In_Production
+          trigger: First work order started for this serial (or lot)
+        - from: In_Production
+          to: Complete
+          trigger: All work orders complete; inspection result Pass recorded
+        - from: In_Production
+          to: Quarantined
+          trigger: Nonconformance detected during production; NCR raised with Hold disposition
+        - from: Complete
+          to: Shipped
+          trigger: Unit added to an outbound shipment record
+        - from: Complete
+          to: Quarantined
+          trigger: Nonconformance detected after completion but before shipment; NCR raised
+        - from: Quarantined
+          to: Reworked
+          trigger: NCR disposition is Rework; rework operation created and completed
+        - from: Quarantined
+          to: Scrapped
+          trigger: NCR disposition is Scrap
+        - from: Reworked
+          to: Complete
+          trigger: Re-inspection passes; unit clears quarantine
+        - from: Reworked
+          to: Quarantined
+          trigger: Re-inspection fails; unit returned to quarantine with new NCR
+        - from: Shipped
+          to: Returned
+          trigger: Customer initiates RMA; unit returned to the manufacturer receiving
+        - from: Returned
+          to: Quarantined
+          trigger: Returned unit placed on hold for inspection and disposition
+        - from: Returned
+          to: Scrapped
+          trigger: Returned unit scrapped per disposition without re-inspection
+
+    relationships:
+      in_job:
+        target: job
+        cardinality: many-to-one
+      current_at:
+        target: work_order
+        cardinality: many-to-one
+        description: Work order step this unit is currently staged at
+      has_inspection_results:
+        target: qif_results_document
+        cardinality: one-to-many
+        description: QIF results documents covering this serial
+      has_ncrs:
+        target: nonconformance_report
+        cardinality: one-to-many
+        description: Nonconformance reports raised against this serial
+      consumed_material:
+        target: material_lot
+        cardinality: many-to-one
+        description: Material lot from which this unit was cut or formed
+
+  work_order:
+    description: >
+      The execution instance of a routing operation template on a specific job. Distinct from
+      operation (schemas/routing.yaml): operation defines WHAT to do and WHERE (the routing
+      template); work_order records WHEN it ran, WHO ran it, and how long it took (the
+      execution record). One work_order per routing operation per job. The work_order UUID
+      is carried in MTConnect WorkOrder OperationId, making machine events traceable to the
+      specific job operation rather than just the machine.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4; carried in MTConnect WorkOrder OperationId to correlate machine events to job operations
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the routing template this work order instantiates
+      sequence_number:
+        type: integer
+        required: true
+        description: Mirrors the routing operation sequence number for display and ordering
+      status:
+        type: enum
+        required: true
+        values: [Not_Started, In_Progress, Complete, Hold, Skipped]
+      work_center_id:
+        type: uuid
+        required: false
+        description: FK → work_center.id — may differ from the routing template if work center is reassigned for this job
+      assigned_operator_id:
+        type: uuid
+        required: false
+        description: FK → user.id — operator assigned to run this work order
+      scheduled_start:
+        type: datetime
+        required: false
+      actual_start:
+        type: datetime
+        required: false
+      actual_complete:
+        type: datetime
+        required: false
+      setup_time_actual_minutes:
+        type: number
+        required: false
+        description: Actual setup time recorded at completion; compared to standard for costing variance
+      run_time_actual_minutes:
+        type: number
+        required: false
+        description: Actual run time per piece; compared to standard for costing variance
+      quantity_complete:
+        type: integer
+        required: false
+        description: Units completed and moved forward at this operation step
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_job:
+        target: job
+        cardinality: many-to-one
+      from_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Routing operation template this work order instantiates
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: Actual work center (may differ from routing template if reassigned)
+      assigned_to:
+        target: user
+        cardinality: many-to-one
+      produces_events:
+        target: machine_event
+        cardinality: one-to-many
+        description: MTConnect machine events captured while this work order was active on the machine

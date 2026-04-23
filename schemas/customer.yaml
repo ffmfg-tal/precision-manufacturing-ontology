@@ -1,0 +1,154 @@
+# schemas/customer.yaml
+#
+# Layer-1 coverage: None. A persistent customer record has no Layer-1 standard analog.
+#   X12 850 carries customer identification in N1/N2/N3/N4 segments (name, address),
+#   but those are transaction-scoped, not a persistent entity. STEP AP242 identifies the
+#   design authority by name in the PRODUCT entity; it is not a linked record.
+#
+# Layer-2 (Manufacturer Extension): the manufacturer's persistent record for each customer.
+#   Customers drive sales orders, quality flowdown plans, FAI tracking, customer-specific
+#   quality clauses, and vendor ASL constraints. First-class entity per Phase 2.E plan;
+#   previously referenced only by name in extensions and quality clause definitions.
+#   customer_id is used as FK by: sales_order, quality_flowdown_plan, quality_clause,
+#   customer_approval, customer_asl, approved_supplier_list_entry.customer_approvals[].
+#
+# Prose source: extensions/ip-boundary.md (customer data classification),
+#               extensions/quality-flowdowns.md (customer PO / quality clause context),
+#               reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Supply Chain (Phase 2.E)
+# Sibling schemas: schemas/customer_purchase_order.yaml, schemas/customer_asl.yaml,
+#                  schemas/customer_approval.yaml
+
+entities:
+
+  customer:
+    description: >
+      Persistent record for an aerospace customer who places purchase orders with the manufacturer.
+      Carries identification (name, CAGE), compliance flags (ITAR screening, DoD prime
+      status, DFARS registration), contact info, and links to customer-specific quality
+      clauses and ASL documents. The customer.id FK ties together sales orders, quality
+      flowdown plans, FAI packages, and customer approvals across the system.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when customer record is created in the production system item master
+      name:
+        type: string
+        required: true
+        description: Legal company name
+      short_name:
+        type: string
+        required: false
+        description: Short name or common abbreviation used in displays (e.g., "Lockheed" for "Lockheed Martin")
+      cage_code:
+        type: string
+        required: false
+        description: Customer's CAGE code (used in STEP AP242 part identification and ITAR tracking)
+      duns_number:
+        type: string
+        required: false
+      uei:
+        type: string
+        required: false
+        description: SAM.gov Unique Entity Identifier
+      # Contact
+      primary_contact_name:
+        type: string
+        required: false
+      primary_contact_email:
+        type: string
+        required: false
+      primary_contact_phone:
+        type: string
+        required: false
+      billing_address:
+        type: string
+        required: false
+      shipping_address:
+        type: string
+        required: false
+      # Compliance flags
+      is_dod_prime:
+        type: boolean
+        required: false
+        default: false
+        description: >
+          Whether this customer is a DoD prime contractor. Affects DFARS specialty metals
+          compliance, ITAR handling, CMMC data protection requirements, and quality clause scope.
+      dfars_registered:
+        type: boolean
+        required: false
+        default: false
+        description: Whether customer is subject to DFARS (and has passed the manufacturer DFARS compliance check)
+      itar_screened:
+        type: boolean
+        required: false
+        default: false
+        description: >
+          Whether the manufacturer has completed ITAR screening for this customer per DDTC requirements.
+          Required before any controlled technical data or hardware is released to this customer.
+      itar_screen_date:
+        type: date
+        required: false
+        description: Date ITAR screening was completed or last renewed
+      itar_screen_result:
+        type: enum
+        required: false
+        values: [Cleared, Denied, Pending, Restricted]
+        description: Outcome of ITAR screening
+      # Quality Program
+      quality_system_requirement:
+        type: enum
+        required: false
+        values: [AS9100, ISO9001, Customer_Specific, None_Specified]
+        description: Quality system standard this customer requires from the manufacturer
+      customer_quality_addendum_on_file:
+        type: boolean
+        required: false
+        default: false
+        description: Whether a signed customer quality addendum / supplier quality requirements is on file
+      customer_asl_on_file:
+        type: boolean
+        required: false
+        default: false
+        description: Whether a customer-provided Approved Source List (ASL) is on file in the production system
+      # Links
+      customer_asl_refs:
+        type: array
+        required: false
+        description: "FK[] → customer_asl.id — ASL documents this customer has provided"
+        items:
+          type: uuid
+      # Status
+      status:
+        type: enum
+        required: true
+        values: [Active, Inactive, Prospect, Disqualified]
+        description: >
+          Active = current customer with open or recent orders.
+          Inactive = no current orders but relationship maintained.
+          Prospect = potential customer, no orders placed.
+          Disqualified = relationship ended; no future orders.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      places_purchase_orders:
+        target: customer_purchase_order
+        cardinality: one-to-many
+        description: Inbound purchase orders this customer has issued to the manufacturer
+      has_asl_documents:
+        target: customer_asl
+        cardinality: one-to-many
+        description: Approved Source List documents provided by this customer
+      has_quality_clauses:
+        target: quality_clause
+        cardinality: one-to-many
+        nullable: true
+        description: Customer-specific quality clause definitions (where clause_source = Customer)
+      has_customer_approvals:
+        target: customer_approval
+        cardinality: one-to-many
+        description: Customer approval records for the manufacturer as a source for specific P/N+revisions

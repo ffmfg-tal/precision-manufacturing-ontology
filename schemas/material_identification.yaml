@@ -1,0 +1,210 @@
+# the manufacturer Digital Thread — Material Identification Entity
+# Version: 0.1.0
+#
+# Layer 1 (Standards): AS9102 Rev C Form 2 (Product Accountability).
+#   Form 2 is the line-by-line material and process traceability record produced
+#   during First Article Inspection. Each line on Form 2 is a "material or process
+#   identification" record: it cites a drawing callout, the governing spec, the
+#   specific lot or heat that satisfies it, and the cert document number.
+#
+#   AS9102 Rev C defines Form 2 data requirements:
+#   - Drawing callout (from STEP AP242 PMI or 2D drawing)
+#   - Specification number and revision
+#   - Type, class, grade, or condition designator (as applicable)
+#   - Cert document number
+#   - Whether the vendor is on a customer-approved list (approval_code field)
+#
+#   QIF 3.0: QIF does not define a Form 2 analog. Material traceability is outside
+#   QIF scope (QIF handles geometry-based characteristics, not material).
+#   STEP AP242: No Form 2 entity. STEP carries the callout as PMI text; Form 2 is
+#   the structured bridge from that text to the physical evidence.
+#
+# Layer 2 (Manufacturer Extension): material_identification is the line-item entity that
+#   bridges drawing callout → material_specification → material_lot → cert doc.
+#   Each line corresponds to one drawing material or process callout that must be
+#   substantiated for the FAI package.
+#
+# Narrative specification: extensions/quality-flowdowns.md (AS9102 Form 2 section),
+#   extensions/material-certs.md (material traceability chain)
+# Cluster sibling schemas: schemas/material.yaml, schemas/certification_document.yaml
+# Relationship graph edges involving this entity:
+#   first_article_inspection → material_identification (has_form2_line, one-to-many)
+#     Note: as9102_form_2 is an embedded sub-object of first_article_inspection (Phase 2.D);
+#     material_identification records link to the FAI UUID directly.
+#   material_identification → material_specification (references, many-to-one)
+#   material_identification → certification_document (references, many-to-one)
+
+---
+
+entities:
+
+  # ============================================================
+  # MATERIAL_IDENTIFICATION
+  #
+  # One line on AS9102 Form 2 — a single material or process traceability record.
+  # An FAI for a complex part may have 5–15 of these lines covering:
+  # base material, heat treatment, plating, passivation, and any
+  # other material or process callout on the drawing.
+  # ============================================================
+  material_identification:
+    description: >
+      An AS9102 Form 2 line-item record. Each instance covers one drawing
+      callout (material or process specification) and its substantiating
+      evidence (lot number, cert document reference, approval code).
+      Multiple material_identification records aggregate within the
+      as9102_form_2 embedded sub-object of first_article_inspection to
+      comprise the complete Form 2 for a FAI. The FK is to the FAI UUID
+      (first_article_inspection.id), not to a separate form entity (Phase 2.D).
+
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 — minted when Form 2 line-item is created during FAI authoring
+
+      fai_id:
+        type: uuid
+        required: true
+        description: >
+          FK → first_article_inspection.id. Navigates to Form 2 via the embedded
+          as9102_form_2 sub-object. as9102_form_2 has no independent UUID (Phase 2.D
+          decision — forms are sub-objects scoped to the FAI record).
+
+      line_number:
+        type: integer
+        required: true
+        description: Sequential line number on the Form 2 for ordering and reference
+
+      # --- Drawing callout ---
+      drawing_callout:
+        type: string
+        required: true
+        description: >
+          The material or process requirement as written on the drawing.
+          E.g., "7075-T7351 ALUMINUM ALLOY PER AMS 4078" or
+          "HEAT TREAT TO H1025 PER AMS 2759/3".
+
+      callout_type:
+        type: enum
+        required: true
+        values: [Material, HeatTreat, Plating, Coating, NDT, Passivation, Anodize, Weld, Other_Process]
+        description: Category of the drawing callout for Form 2 grouping
+
+      # --- Specification reference ---
+      spec_number:
+        type: string
+        required: true
+        description: The governing specification number cited by the drawing callout
+        examples: ["AMS 4078", "AMS 2759/3", "MIL-A-8625", "ASTM E1417"]
+
+      spec_revision:
+        type: string
+        required: false
+
+      spec_type:
+        type: string
+        required: false
+        description: Type designator within the spec (e.g., "Type II" for MIL-A-8625)
+
+      spec_class:
+        type: string
+        required: false
+        description: Class designator (e.g., "Class 1" for Type II anodize)
+
+      spec_grade:
+        type: string
+        required: false
+        description: Grade designator (rare — some AMS specs include grade)
+
+      condition:
+        type: string
+        required: false
+        description: >
+          Temper or condition designator.
+          E.g., "T7351" for the aluminum material, "H1025" for the heat treat condition.
+
+      # --- Sub-tier FAI tracking (AS9102 Form 2) ---
+      sub_tier_fai_required:
+        type: boolean
+        required: false
+        default: false
+        description: Whether the vendor performing this process must submit a sub-tier FAI
+
+      sub_tier_fai_status:
+        type: enum
+        required: true
+        values: [NA, Open, Submitted, Approved]
+        description: Status of sub-tier FAI requirement for this line item
+
+      # --- Substantiating evidence ---
+      heat_or_lot_number:
+        type: string
+        required: false
+        description: Mill heat number or material lot number that satisfies this callout
+
+      cert_id:
+        type: uuid
+        required: false
+        description: "FK → certification_document.id or process_certification.id per cert_type"
+
+      cert_type:
+        type: enum
+        required: false
+        values: [certification_document, process_certification]
+        description: "Discriminator for cert_id FK — matches polymorphic FK convention (Decision 1.9 pattern)"
+
+      cert_document_number:
+        type: string
+        required: false
+        description: Human-readable cert document number from issuer; supplements cert_id
+
+      # --- Approval status (AS9102 Form 2 "Approval Code" column) ---
+      approval_code:
+        type: enum
+        required: true
+        values:
+          - Approved              # Meets spec; cert on file; no exceptions
+          - Customer_ASL          # Vendor on customer-approved source list
+          - Deviation             # Approved deviation from drawing requirement
+          - Waiver                # Accepted as-is with customer waiver
+          - Not_Required          # Callout does not apply to this FAI unit
+        description: >
+          AS9102 Rev C Form 2 approval code for this line item.
+          Customer_ASL is used when the quality flowdown requires vendor
+          selection from the customer's approved source list (QA-013 active).
+
+      approval_notes:
+        type: string
+        required: false
+        description: Narrative supporting the approval code assignment
+
+      # --- Traceability flags ---
+      dfars_applicable:
+        type: boolean
+        required: false
+        default: false
+        description: Whether this line represents a DFARS specialty metals requirement
+
+      nadcap_required:
+        type: boolean
+        required: false
+        default: false
+        description: >
+          Whether the vendor performing the process must hold Nadcap accreditation.
+          Flows from quality_flowdown_plan QA-013 clause.
+
+    relationships:
+      references_spec:
+        target: material_specification
+        cardinality: many-to-one
+        description: The material specification this line references (null for process-only lines)
+
+      references_material_cert:
+        target: certification_document
+        cardinality: many-to-one
+        description: "Material cert (MTR, CoC, DFARS declaration) substantiating this line; null for process-only lines"
+
+      references_process_cert:
+        target: process_certification
+        cardinality: many-to-one
+        description: "Process cert (Nadcap CoC, process chart) substantiating this line; null for material-only lines"

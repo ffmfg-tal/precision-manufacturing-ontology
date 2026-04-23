@@ -1,0 +1,447 @@
+# the manufacturer Digital Thread — Certification Document Entity
+# Version: 0.1.0
+#
+# Layer 1 (Standards): No Layer-1 standard defines a cert-document data schema.
+#   STEP AP242: no cert-document entity; material callouts are unstructured PMI text.
+#   QIF: defines inspection result documents, not material or process certifications.
+#   X12 856 (ASN): carries cert-document references as free-text REF segments only.
+#   AS9100 Rev D §8.4.3: requires supplier evidence records; defines no data structure.
+#   AS9102 Rev C Form 2: requires material_identification records that reference cert
+#     documents by number and spec; the referenced document structure is not defined.
+#   DFARS 252.225-7009 / 252.225-7052: mandate specific declaration content;
+#     this schema captures that content in structured fields (dfars_fields,
+#     conflict_mineral_fields).
+#
+# Layer 2 (Manufacturer Extension): certification_document is the discriminated supertype for all
+#   conformance evidence in the cert package. Per Decision 1.6 (taxonomic-decisions.md),
+#   the cert_type field is the discriminator. The legacy prose entities
+#   (mtr, coc, dfars_declaration, pmi_report, conflict_minerals_declaration,
+#   shelf_life_certification) in entity-inventory.yaml are aliases pointing here.
+#   ExportCompliance added per Decision 1.6 to cover AES/EEI compliance evidence.
+#
+# Narrative specification: extensions/material-certs.md
+# Cluster sibling schemas: schemas/material.yaml (material_lot.certifications[])
+#                          schemas/pmi_event.yaml (PMI_Report cert_type references a pmi_event)
+#                          schemas/material_identification.yaml (Form 2 line-item cert ref)
+
+---
+
+entities:
+
+  # ============================================================
+  # CERTIFICATION_DOCUMENT
+  #
+  # A document issued by a supplier, mill, test lab, or government body
+  # certifying conformance to a specification. This entity covers both
+  # material-side certifications (MTR, CoC, DFARS) and process-side
+  # certifications (process CoC, NDT report) — the same supertype serves
+  # both because cert-package assembly merges them.
+  #
+  # cert_type is the discriminator. Fields relevant to the discriminated
+  # subtype are organized as named sub-objects (mtr_fields, coc_fields, etc.).
+  # All other fields are empty/null for that cert type. This avoids the
+  # normalization overhead of a separate table per subtype while keeping
+  # the schema self-documenting.
+  # ============================================================
+  certification_document:
+    description: >
+      A conformance document issued by an external party (mill, distributor,
+      heat treater, NDT lab, or government) certifying that material or a
+      process meets its governing specification. certification_document is a
+      discriminated supertype; cert_type determines which sub-fields are
+      populated. The legacy entities mtr, coc, dfars_declaration, pmi_report,
+      conflict_minerals_declaration, and shelf_life_certification are aliases
+      for specific cert_type values (Decision 1.6).
+
+    attributes:
+      # --- Identity ---
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 — minted when cert PDF is received and logged in the production system
+
+      cert_type:
+        type: enum
+        required: true
+        values:
+          - MTR                    # Mill Test Report — chemistry + mechanical results from the mill
+          - CoC                    # Certificate of Conformance — distributor or processor conformance
+          - DFARS_Declaration      # DFARS 252.225-7009 specialty metals compliance declaration
+          - PMI_Report             # Positive Material Identification — XRF / OES / ICP results
+          - ConflictMineral        # Conflict minerals declaration per DFARS 252.225-7052 / Dodd-Frank
+          - ShelfLife              # Shelf-life / age-sensitive material certification
+          - ExportCompliance       # Export compliance evidence (AES ITN, EEI filing, license copy)
+        description: Discriminator — determines which sub-field block is populated
+
+      issuer:
+        type: string
+        required: true
+        description: Company or organization issuing the cert
+
+      issuer_cage:
+        type: string
+        required: false
+        description: CAGE code of issuing company (if applicable)
+
+      issue_date:
+        type: date
+        required: true
+
+      document_number:
+        type: string
+        required: false
+        description: Issuer's internal cert number or document identifier
+
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to cert document PDF or image
+
+      # --- Primary references ---
+      material_lot_id:
+        type: uuid
+        required: false
+        description: >
+          FK → material_lot.id. Populated for material certs (MTR, CoC,
+          DFARS_Declaration, PMI_Report, ConflictMineral, ShelfLife).
+          Null for standalone process certs (those link via outside_process_operation).
+
+      spec_reference_id:
+        type: uuid
+        required: false
+        description: FK → material_specification.id (material certs) or process_specification.id (process certs)
+
+      # --- Subtype fields ---
+
+      mtr_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = MTR.
+          Captures actual chemistry and mechanical test results from the mill.
+          Basis for DFARS traceability and alloy verification.
+        attributes:
+          heat_number:
+            type: string
+            required: true
+            description: Mill heat/melt identifier — must match material_lot.heat_number
+          chemistry_actual:
+            type: object[]
+            required: true
+            description: Actual elemental analysis from spectrographic test
+            item_schema:
+              element: { type: string, required: true, examples: ["C", "Ni", "Cr", "Mo"] }
+              percent: { type: decimal, required: true }
+          chemistry_limits:
+            type: object[]
+            required: false
+            description: Spec min/max limits for comparison and conformance evidence
+            item_schema:
+              element: { type: string, required: true }
+              min_pct: { type: decimal, required: false }
+              max_pct: { type: decimal, required: false }
+          mechanical_tests:
+            type: object[]
+            required: false
+            item_schema:
+              test_type:
+                type: enum
+                values:
+                  - Tensile
+                  - Yield
+                  - Elongation
+                  - Reduction_of_Area
+                  - HardnessRB
+                  - HardnessRC
+                  - Impact
+                  - Charpy
+                  - Fatigue
+              direction:
+                type: enum
+                values: [L, LT, ST]
+                description: Longitudinal | Long Transverse | Short Transverse
+              result: { type: decimal, required: true }
+              units: { type: string, required: true, examples: ["ksi", "MPa", "%", "HRC", "ft-lbf"] }
+              spec_min: { type: decimal, required: false }
+          melt_practice:
+            type: string
+            required: false
+            examples: ["VIM-VAR", "Air Melt", "ESR", "AOD"]
+          product_form:
+            type: string
+            required: false
+            examples: ["Bar, Round", "Plate", "Sheet", "Forging"]
+          heat_treat_condition:
+            type: string
+            required: false
+            examples: ["T7351", "H1025", "Annealed", "Condition A"]
+          certification_statement:
+            type: string
+            required: false
+            description: Verbatim conformance statement from the mill cert
+
+      coc_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = CoC.
+          Covers both material-distributor CoC (referencing a heat/lot)
+          and process-vendor CoC (referencing a job/serial run).
+          Use the material_lot_id or outside_process_op_id context to
+          distinguish which kind of CoC this is.
+        attributes:
+          heat_or_lot_ref:
+            type: string
+            required: false
+            description: Heat number or lot number this CoC covers
+          parts_or_quantity:
+            type: string
+            required: false
+            description: Description of parts or quantity covered (e.g., "5 pcs, S/N 001-005")
+          quantity:
+            type: integer
+            required: false
+          serial_or_lot_numbers:
+            type: string[]
+            required: false
+            description: Specific serial or lot numbers covered by this CoC
+          spec_number:
+            type: string
+            required: false
+            description: Governing specification being conformed to
+          condition_achieved:
+            type: string
+            required: false
+            description: >
+              Condition or temper certified (e.g., "T7351 per AMS 4078",
+              "H1025 per AMS 2759/3", "Type II per MIL-A-8625")
+          conformance_statement:
+            type: string
+            required: true
+            description: Verbatim declaration that material/process meets spec requirements
+          job_or_work_order_ref:
+            type: string
+            required: false
+            description: Issuer's internal job or work order number
+          authorized_signature:
+            type: string
+            required: false
+          distributor_po_ref:
+            type: string
+            required: false
+            description: PO number from the issuer's records
+
+      dfars_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = DFARS_Declaration.
+          Documents compliance with DFARS 252.225-7009 (specialty metals) or
+          252.225-7014 (super alloys). Required for DoD prime contracts.
+        attributes:
+          clause:
+            type: string
+            required: true
+            examples: ["252.225-7009", "252.225-7014"]
+          melt_country:
+            type: string
+            required: true
+            description: ISO 3166-1 alpha-2 country code where metal was melted
+          manufacture_country:
+            type: string
+            required: true
+            description: ISO 3166-1 alpha-2 country code where metal was manufactured/converted
+          qualifying_country:
+            type: boolean
+            required: false
+            description: Whether melt/manufacture country qualifies under DFARS qualifying country list
+          declarant_name:
+            type: string
+            required: true
+          declarant_title:
+            type: string
+            required: true
+          declaration_date:
+            type: date
+            required: true
+          ffm_signatory:
+            type: string
+            required: false
+            description: the manufacturer employee co-signing the DFARS pass-through declaration
+
+      conflict_mineral_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = ConflictMineral.
+          Documents 3TG (tantalum, tin, tungsten, gold) compliance per
+          DFARS 252.225-7052 / Dodd-Frank Section 1502.
+        attributes:
+          clause:
+            type: string
+            required: true
+            examples: ["252.225-7052"]
+          minerals_covered:
+            type: string[]
+            required: true
+            examples: [["Tantalum", "Tin", "Tungsten", "Gold"]]
+          conflict_free:
+            type: boolean
+            required: true
+          country_of_origin:
+            type: string
+            required: false
+            description: Country of origin for the mineral(s)
+          smelter_id:
+            type: string
+            required: false
+            description: OECD or RMI smelter identifier if traced to source
+
+      pmi_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = PMI_Report.
+          Documents the Positive Material Identification (PMI) performed at
+          receiving inspection to verify alloy chemistry against the MTR claim.
+          References the pmi_event that produced this result. The pmi_event
+          entity carries raw instrument output; this cert is the conformance
+          document derived from it.
+        attributes:
+          pmi_event_id:
+            type: uuid
+            required: false
+            description: FK → pmi_event.id (raw instrument record)
+          technique:
+            type: enum
+            required: true
+            values: [XRF, OES, ICP]
+            description: X-ray fluorescence | Optical Emission Spectroscopy | Inductively Coupled Plasma
+          instrument_id:
+            type: string
+            required: false
+            description: Instrument serial or asset number used
+          operator_id:
+            type: uuid
+            required: false
+            description: FK → user.id (operator who ran the test)
+          test_date:
+            type: date
+            required: true
+          result:
+            type: enum
+            required: true
+            values: [Pass, Fail, Inconclusive]
+          alloy_identified:
+            type: string
+            required: false
+            description: Alloy designation as identified by PMI (e.g., "15-5 PH SS")
+          chemistry_actual:
+            type: object[]
+            required: false
+            description: Elemental percentages measured during PMI
+            item_schema:
+              element: { type: string, required: true }
+              percent: { type: decimal, required: true }
+          deviation_from_mtr:
+            type: string
+            required: false
+            description: Narrative note if PMI result differs from MTR chemistry
+
+      shelf_life_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = ShelfLife.
+          Documents manufacturing/cure date and expiration for age-sensitive
+          materials (adhesives, sealants, O-rings, non-metallics, some coatings).
+          Required when customer quality flowdown cites shelf-life verification.
+        attributes:
+          manufactured_date:
+            type: date
+            required: false
+            description: Date of manufacture, cure, or mix
+          shelf_life_days:
+            type: integer
+            required: false
+            description: Shelf life in days as stated by the manufacturer
+          expiration_date:
+            type: date
+            required: true
+            description: Latest acceptable use date
+          storage_conditions:
+            type: string
+            required: false
+            description: Required storage conditions (e.g., "Store at 40–80°F, 30–70% RH, away from UV")
+          lot_code:
+            type: string
+            required: false
+            description: Manufacturer's lot or batch code
+          product_description:
+            type: string
+            required: false
+            description: Material description (e.g., "PR-1422 B-2 polysulfide sealant")
+          first_article_test_date:
+            type: date
+            required: false
+            description: Date of functional test if re-qualification testing required before use
+
+      export_compliance_fields:
+        type: object
+        required: false
+        description: >
+          Populated when cert_type = ExportCompliance.
+          Documents AES/EEI filings, export license copies, or ITAR exemption
+          citations required when shipping controlled technical data or hardware.
+          Per extensions/ip-boundary.md — ships only when the cert package
+          recipient is authorized to receive ITAR/EAR-controlled content.
+        attributes:
+          export_control_classification:
+            type: string
+            required: true
+            description: ECCN (EAR) or USML category (ITAR) of the item being shipped
+            examples: ["EAR99", "9A991.d", "USML Cat XV"]
+          authorization_type:
+            type: enum
+            required: true
+            values: [License_Exception, License_NLR, License, ITAR_Exemption, TAA]
+            description: Authorization basis for the export
+          license_or_exception_number:
+            type: string
+            required: false
+            description: License number (if licensed) or exception code (e.g., "AT", "STA", "NLR")
+          aes_itn:
+            type: string
+            required: false
+            description: AES/EEI Internal Transaction Number if AES filing required
+          authorized_recipient:
+            type: string
+            required: false
+            description: Name of authorized foreign recipient (for licensed exports)
+          country_of_ultimate_destination:
+            type: string
+            required: false
+            description: ISO 3166-1 alpha-2 code
+          itar_exemption_cite:
+            type: string
+            required: false
+            description: ITAR exemption citation if applicable (e.g., "22 CFR 125.4(b)(2)")
+          filing_date:
+            type: date
+            required: false
+
+    relationships:
+      certifies:
+        target: material_lot
+        cardinality: many-to-one
+        description: The material lot this cert covers (populated for material certs)
+
+      references_spec:
+        target: material_specification
+        cardinality: many-to-one
+        description: The material spec this cert conforms to (may be null for process certs)
+
+      referenced_by_form_2:
+        target: material_identification
+        cardinality: one-to-many
+        description: AS9102 Form 2 line-items that cite this cert document

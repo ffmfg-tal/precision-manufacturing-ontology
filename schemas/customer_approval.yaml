@@ -1,0 +1,127 @@
+# schemas/customer_approval.yaml
+#
+# Layer-1 coverage: No Layer-1 standard (STEP AP242, QIF, X12) defines whether a CM
+# is an approved source for a given part number. AS9100 Rev D §8.4 requires customer-
+# approved sources; AS9102 Rev C defines FAI as the mechanism for initial approval.
+#
+# Prose source: reference/domain-map.md §2 (Parts and Structures),
+#               reference/composition-archetypes.md (has_approval_state edge, all archetypes),
+#               extensions/quality-flowdowns.md (FAI approval state)
+#
+# Decision context: customer_approval is distinct from first_article_inspection (the FAI
+# package itself). customer_approval is the resulting approval status; first_article_inspection
+# is the documentary evidence that earned it.
+
+entities:
+
+  customer_approval:
+    description: >
+      A record of whether the manufacturer is an approved source for a specific part number + revision
+      in a specific customer's supplier qualification program. Records FAI status,
+      source-inspection requirements, and the qualification method used.
+      One record per (part_or_assembly, customer) pair.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system item master when approval record created
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — the article this approval covers
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator for subject_id polymorphic FK
+      customer_id:
+        type: uuid
+        required: true
+        description: FK → customer.id — the customer whose approval program this applies to
+      approval_status:
+        type: enum
+        required: true
+        values: [Not_Submitted, Pending_Review, Approved, Conditionally_Approved, Expired, Rejected]
+        description: >
+          Not_Submitted = no approval sought yet.
+          Pending_Review = FAI or qualification package submitted; awaiting customer decision.
+          Approved = customer has accepted the manufacturer as an approved source.
+          Conditionally_Approved = approved with conditions (e.g., source inspection on first N lots).
+          Expired = previous approval has lapsed (revision change, period of inactivity, etc.).
+          Rejected = customer declined to approve the manufacturer as a source.
+      fai_status:
+        type: enum
+        required: true
+        values: [Not_Required, Required, In_Progress, Submitted, Approved, Expired]
+        description: >
+          AS9102 Rev C First Article Inspection status.
+          Not_Required = customer or contract waived FAI requirement.
+          Required = FAI must be completed before approval.
+      fai_package_id:
+        type: uuid
+        required: false
+        description: FK → fai_package.id — the FAI package that supports this approval
+      source_inspection_required:
+        type: boolean
+        required: true
+        description: >
+          True if the customer requires their QA representative or delegated SQE to be
+          physically present at the shop during final inspection before shipment.
+      qualification_method:
+        type: enum
+        required: false
+        values: [FAI, PPAP, Pilot_Lot, First_Shipment_Review, Drawing_Review_Only, Waiver, Not_Required]
+        description: >
+          The method used to earn the initial approval.
+          FAI = AS9102 First Article Inspection.
+          PPAP = Production Part Approval Process (automotive-style, occasionally required by commercial space customers).
+          Pilot_Lot = customer inspected a pilot lot and accepted results.
+          First_Shipment_Review = customer reviewed and accepted the first shipment paperwork.
+          Drawing_Review_Only = customer accepted on drawing review; no inspection required.
+          Waiver = approval granted without normal qualification (document the authority).
+          Not_Required = blanket supplier approval for this customer; no P/N-specific approval needed.
+      approved_date:
+        type: date
+        required: false
+        description: Date customer granted approval
+      expiration_date:
+        type: date
+        required: false
+        description: Date approval expires (if customer has a periodic re-approval requirement)
+      customer_approval_number:
+        type: string
+        required: false
+        description: Customer's internal approval reference number
+        examples: ["SAP-7832-001-A", "CSA-2025-0041"]
+      approval_document_ref:
+        type: string
+        required: false
+        description: Path or URL to the signed approval letter or customer notification
+        examples: ["approvals/customer-x/SAP-7832-001-A.pdf"]
+      conditions:
+        type: string
+        required: false
+        description: >
+          Conditions attached to the approval (for Conditionally_Approved status).
+          Examples: "Source inspection required on first 5 lots", "Certificate of conformance
+          signed by customer QA required with each shipment".
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      approves_part:
+        target: part
+        cardinality: many-to-one
+        description: When subject_type = part
+      approves_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: When subject_type = assembly
+      from_customer:
+        target: customer
+        cardinality: many-to-one
+      supported_by_fai:
+        target: fai_package
+        cardinality: many-to-one
+        description: The FAI package that earned or supports this approval

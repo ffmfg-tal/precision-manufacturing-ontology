@@ -1,0 +1,175 @@
+# the manufacturer Digital Thread — Material Condition Entity
+# Version: 0.1.0
+#
+# Layer 1 (Standards): No Layer-1 standard defines a material_condition entity.
+#   STEP AP242 PMI: condition/temper appears only as text in the material callout
+#     (e.g., "H1025" in "17-4 PH PER AMS 5643 COND H1025"). No schema for the
+#     condition's property targets (tensile min, yield min, hardness range).
+#   AMS specifications define condition designators and their minimum mechanical
+#     properties within each spec. This entity is the structured representation
+#     of a single row in an AMS condition table.
+#
+# Layer 2 (Manufacturer Extension): material_condition is a child of material_specification.
+#   A spec defines multiple conditions (e.g., AMS 5659 covers H900, H925, H1025,
+#   H1075, H1150, H1150M). Each condition has distinct minimum tensile, yield,
+#   elongation, and hardness requirements. Knowing the condition is not sufficient
+#   for conformance verification; you must know which condition's requirements
+#   apply to determine whether the MTR results pass.
+#
+# Decision 1.7 (taxonomic-decisions.md): material_condition is a first-class entity
+#   (not a string enum) because it carries queryable property data used in FAI
+#   Form 2 conformance checks and heat-treat scheduling decisions.
+#
+# Narrative specification: extensions/material-certs.md (conditions_defined block
+#   within the material_specification prose YAML)
+# Cluster sibling schemas: schemas/material.yaml, schemas/certification_document.yaml
+# Relationship graph source: reference/relationship-graph.yaml
+#   (material_specification → material_condition via has_condition, one-to-many)
+
+---
+
+entities:
+
+  # ============================================================
+  # MATERIAL_CONDITION
+  #
+  # One allowed temper or treatment condition within a material_specification.
+  # Examples: H1025 in AMS 5659 (17-4 PH bar); T7351 in AMS 4078 (7075 plate);
+  # Annealed in AMS 5666 (Inconel 625 bar).
+  #
+  # A material_lot.condition field is a string referencing a condition code;
+  # the material_condition entity here holds the mechanical property requirements
+  # against which the MTR results are validated.
+  # ============================================================
+  material_condition:
+    description: >
+      One allowed temper or treatment condition within a material_specification.
+      Carries the minimum mechanical property requirements (tensile, yield,
+      elongation) and hardness acceptance criteria for that condition. Used in
+      MTR conformance checks and AS9102 Form 2 line-item validation.
+
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 — minted when material_specification is authored or imported
+
+      material_specification_id:
+        type: uuid
+        required: true
+        description: FK → material_specification.id (the spec this condition belongs to)
+
+      condition_code:
+        type: string
+        required: true
+        description: Condition designator as it appears in the specification
+        examples: ["H900", "H1025", "T6", "T7351", "Annealed", "Solution Treated", "Condition A"]
+
+      condition_description:
+        type: string
+        required: false
+        description: >
+          Plain-text description of what this condition means.
+          E.g., "Aged 4 hr at 1025°F, air cooled" for H1025.
+
+      # --- Minimum mechanical properties ---
+      # These are the minimum values from the specification table.
+      # All values are at room temperature unless noted.
+
+      tensile_min_ksi:
+        type: decimal
+        required: false
+        description: Minimum ultimate tensile strength in ksi
+
+      yield_min_ksi:
+        type: decimal
+        required: false
+        description: Minimum 0.2% offset yield strength in ksi
+
+      elongation_min_pct:
+        type: decimal
+        required: false
+        description: Minimum elongation in 2 inches (%)
+
+      reduction_of_area_min_pct:
+        type: decimal
+        required: false
+        description: Minimum reduction of area (%), if specified
+
+      # --- Hardness ---
+      # Hardness scales differ by alloy family and spec.
+      # The hardness_method discriminator selects which field block applies.
+
+      hardness_method:
+        type: enum
+        required: false
+        values: [Rockwell_C, Rockwell_B, Brinell, Vickers, Knoop]
+        description: >
+          Hardness test method. Determines which of the typed hardness
+          fields below is populated. Multiple scales may be specified;
+          repeat the entity or populate multiple scale fields as applicable.
+
+      hardness_rockwell_c:
+        type: object
+        required: false
+        description: Populated when hardness_method = Rockwell_C
+        attributes:
+          min: { type: decimal, required: false, description: "Min HRC" }
+          max: { type: decimal, required: false, description: "Max HRC" }
+          typical: { type: string, required: false, description: "Typical range (informational)" }
+
+      hardness_rockwell_b:
+        type: object
+        required: false
+        description: Populated when hardness_method = Rockwell_B
+        attributes:
+          min: { type: decimal, required: false, description: "Min HRB" }
+          max: { type: decimal, required: false, description: "Max HRB" }
+
+      hardness_brinell:
+        type: object
+        required: false
+        description: Populated when hardness_method = Brinell
+        attributes:
+          min: { type: decimal, required: false, description: "Min HBW" }
+          max: { type: decimal, required: false, description: "Max HBW" }
+          load_kgf: { type: decimal, required: false, description: "Test load in kgf" }
+          ball_diameter_mm: { type: decimal, required: false }
+
+      hardness_vickers:
+        type: object
+        required: false
+        description: Populated when hardness_method = Vickers
+        attributes:
+          min: { type: decimal, required: false, description: "Min HV" }
+          max: { type: decimal, required: false, description: "Max HV" }
+
+      # --- Heat treatment process reference ---
+      governing_ht_spec:
+        type: string
+        required: false
+        description: >
+          Primary heat treatment process specification that produces this condition.
+          E.g., "AMS 2759/3" for PH stainless H-conditions, "AMS 2770" for aluminum.
+          This is a string reference (spec number); the full entity lives in
+          schemas/process_specification.yaml (Cluster 2.C).
+
+      key_thermal_parameter:
+        type: string
+        required: false
+        description: >
+          Key time/temperature parameter for this condition (informational).
+          E.g., "1025°F ± 10°F, 4 hr minimum, air cool" for H1025 per AMS 2759/3.
+
+      # --- Status ---
+      status:
+        type: enum
+        required: false
+        values: [Active, Superseded, Informational_Only]
+        default: Active
+
+    relationships:
+      belongs_to_spec:
+        target: material_specification
+        cardinality: many-to-one
+        description: The specification that defines this condition

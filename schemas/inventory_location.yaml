@@ -1,0 +1,89 @@
+# schemas/inventory_location.yaml
+#
+# Layer-1 coverage:
+#   ISA-95 Part 2 (IEC 62264-2) defines a Storage Zone and Storage Unit hierarchy for
+#   material management. This entity is grounded in that model but adds aerospace-specific
+#   constraints: ITAR segregation flag, quarantine designation, and off-site tracking
+#   for material at outside processors.
+#
+# Architectural decisions:
+#   parent_location_id supports hierarchical nesting (warehouse → zone → shelf → bin)
+#   per the Carbon storage-unit-nesting pattern. Depth is not formally constrained;
+#   implementations should guard against cycles.
+#
+#   off_site type covers material at outside process vendors (tracked via
+#   outside_process_operation.tracks_items_at_supplier) and at customer-owned facilities.
+#
+#   ITAR segregation: material_lots with itar_controlled = true must reside in locations
+#   with itar_segregated = true. Enforcement is at the application layer (production system), not
+#   modeled as a hard constraint in the schema.
+#
+# Entities: inventory_location
+
+entities:
+
+  inventory_location:
+    description: >
+      A named physical or logical location where material lots, work-in-process, and
+      finished goods are stored. Supports hierarchical nesting (warehouse → zone → bin)
+      via parent_location_id. Used to track material through receiving, storage, production,
+      quarantine, and shipping. The ITAR-segregated flag drives access control enforcement
+      for ITAR-controlled inventory.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the location is created in the production system
+      name:
+        type: string
+        required: true
+        description: Human-readable location name as displayed in the production system
+        examples: ["Raw Stock Cage", "Cage A - Shelf 3", "Quarantine Hold", "Shipping Staging", "At Acme Heat Treat"]
+      location_code:
+        type: string
+        required: false
+        description: Short alphanumeric code for use on traveler and routing documents
+        examples: ["CAGE-A3", "QHLD", "SHIP", "OPR-AHT"]
+      location_type:
+        type: enum
+        required: true
+        values: [Warehouse, Work_Cell, Quarantine, Shipping, Receiving, Off_Site, Inspection]
+        description: >
+          Warehouse: general storage. Work_Cell: in-process at a machine or bench.
+          Quarantine: material on hold pending disposition. Shipping: staging for outbound.
+          Receiving: staging for inbound inspection. Off_Site: at outside processor or
+          customer facility. Inspection: CMM room or inspection bench.
+      parent_location_id:
+        type: uuid
+        required: false
+        description: FK → inventory_location.id — parent in the location hierarchy; null for top-level locations
+      itar_segregated:
+        type: boolean
+        required: true
+        description: True if this location meets ITAR segregation requirements; material_lots with itar_controlled = true must reside here
+      associated_supplier_id:
+        type: uuid
+        required: false
+        description: FK → supplier.id — for Off_Site locations, the outside processor holding material in this location
+      address:
+        type: string
+        required: false
+        description: Physical address for Off_Site locations; null for in-house locations
+      active:
+        type: boolean
+        required: true
+        description: False for decommissioned or retired locations
+
+    relationships:
+      child_of:
+        target: inventory_location
+        cardinality: many-to-one
+        description: Parent location in the hierarchy; null for top-level locations
+      has_children:
+        target: inventory_location
+        cardinality: one-to-many
+        description: Sub-locations nested within this location
+      holds_supplier:
+        target: supplier
+        cardinality: many-to-one
+        description: For Off_Site locations, the supplier at this location

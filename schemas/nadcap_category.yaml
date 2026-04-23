@@ -1,0 +1,96 @@
+# schemas/nadcap_category.yaml
+#
+# Layer-1 coverage: None. Nadcap is administered by the Performance Review Institute (PRI).
+#   The category/audit-scope system is PRI-governed, not defined by STEP, QIF, MTConnect,
+#   or X12. Nadcap category codes (AC7xxx) are PRI audit checklists, not standard data types.
+#
+# Layer-2 (Manufacturer Extension): Nadcap category is a first-class entity per Decision 1.7
+#   (decision captured in reference/taxonomic-decisions.md). Previously a free-text
+#   string inside approved_supplier_list_entry and outside_process_operation. Promoted
+#   because the category carries queryable attributes beyond a code string: the AC7xxx
+#   audit checklist number, the prime subscribers, PRI as audit body, scope definition.
+#
+# Prose source: extensions/supplier-approval.md (Nadcap Category Scope Detail),
+#               extensions/outside-processing.md (Nadcap Scope Reference table)
+# Cluster: Supply Chain (Phase 2.E)
+# Sibling schemas: schemas/nadcap_certification.yaml,
+#                  schemas/approved_supplier_list_entry.yaml,
+#                  schemas/outside_process_operation.yaml
+
+entities:
+
+  nadcap_category:
+    description: >
+      A Nadcap accreditation category administered by PRI (Performance Review Institute).
+      Categories correspond to audit checklists (AC7xxx series) and define the scope of
+      accreditation. The category code is the canonical identifier; the name and
+      associated audit checklist number are human-readable labels. Each supplier's
+      nadcap_certification references a nadcap_category, and each outside_process_operation
+      names a required nadcap_category — these must match for vendor qualification to pass.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when category record is authored in the manufacturer category library
+      category_code:
+        type: string
+        required: true
+        description: >
+          PRI Nadcap category short code. Standard values: HT (Heat Treating),
+          CP (Chemical Processing), CT (Coatings), NDT (Non-Destructive Testing),
+          WLD (Welding), SEAL (Elastomeric Sealing), FSS (Fluid Systems), E (Electronics).
+        examples: ["HT", "CP", "NDT", "WLD", "CT", "SEAL", "FSS", "E"]
+      audit_checklist_number:
+        type: string
+        required: false
+        description: PRI AC7xxx audit checklist number that governs this category
+        examples: ["AC7004", "AC7102", "AC7108", "AC7114", "AC7118", "AC7003"]
+      name:
+        type: string
+        required: true
+        description: Full process scope name
+        examples:
+          - "Heat Treating"
+          - "Chemical Processing (Anodize, Chromate, Passivation)"
+          - "Non-Destructive Testing"
+          - "Welding"
+          - "Coatings (Thermal Spray)"
+      description:
+        type: string
+        required: false
+        description: Scope definition — what processes and materials are covered under this category
+      audit_body_default:
+        type: string
+        required: false
+        default: "PRI / Nadcap"
+        description: Name of the audit body that conducts accreditation audits for this category
+      subscriber_list:
+        type: array
+        required: false
+        description: >
+          Aerospace prime contractors that subscribe to this Nadcap audit category.
+          A subscribing prime accepts the audit results for their supply chain.
+          Actual subscription is per-vendor on the eAuditNet certificate, not per-category;
+          this field captures the typical primes that subscribe to this category.
+        items:
+          type: string
+          examples: ["Lockheed Martin", "Boeing", "Pratt & Whitney", "Honeywell", "Raytheon"]
+      eauditnet_category_url:
+        type: string
+        required: false
+        description: URL to the Nadcap category page on eAuditNet (public PRI database)
+      status:
+        type: enum
+        required: true
+        values: [Active, Inactive]
+        description: Active = currently administered by PRI; Inactive = withdrawn or replaced
+
+    relationships:
+      has_certifications:
+        target: nadcap_certification
+        cardinality: one-to-many
+        description: Certifications issued under this category
+      referenced_by_outside_process:
+        target: outside_process_operation
+        cardinality: one-to-many
+        description: Outside process operations that require this Nadcap category

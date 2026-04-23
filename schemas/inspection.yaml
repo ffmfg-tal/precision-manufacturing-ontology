@@ -1,0 +1,443 @@
+# schemas/inspection.yaml
+#
+# Layer-1 coverage: PARTIAL.
+#   QIF (Quality Information Framework) covers inspection plans, characteristics, and results
+#   via QIF Resources, QIFMeasurementResources, and QIFResults modules.
+#   MTConnect CuttingTool asset schema covers tool identification and asset IDs.
+#   No Layer-1 standard covers calibration records as an independent manufacturer-layer entity,
+#   nor key characteristics as a production-tracking attribute (KCs are design attributes
+#   in AP242 but not operationally tracked at the manufacturer layer without this entity).
+#
+# Prose source: extensions/inspection-calibration.md
+#
+# Architectural decisions:
+#   inspection_event is a LIGHTWEIGHT UUID ENVELOPE for multi-evidence inspection sessions.
+#   Its value is providing a single UUID to bundle QIF measurement results, PMI event records,
+#   and visual inspection attachments that were collected in the same session (e.g., final
+#   inspection of SN-001 by Inspector Jones on 2026-04-15). Without this envelope, QIF
+#   results, pmi_event records, and upload attachments for the same session have no shared
+#   parent FK. The entity does not replicate measurement data — it carries only session
+#   metadata and FKs to the actual result records.
+#
+#   calibration_record is IMMUTABLE. Each calibration event produces one record and that
+#   record never changes — it is an audit document. The lifecycle question (Current /
+#   Due_Soon / Overdue / Quarantined) belongs on tool_gauge.calibration_status, not on the
+#   calibration_record. tool_gauge carries the mutable state machine; calibration_record
+#   carries the time-stamped evidence. tool_gauge.current_calibration_id always points to
+#   the most recent calibration_record.
+#
+#   tool_gauge uses MTConnect CuttingTool asset ID (mtconnect_tool_asset_id) to bridge from
+#   the physical tool identity in QIF Resources to the MTConnect asset model used for in-house
+#   machine tooling. QIF Resources module covers gauges and measurement instruments;
+#   both reference sets map to the same tool_gauge entity here.
+#
+#   key_characteristic uses polymorphic FK (subject_id + subject_type) per Decision 1.9:
+#   a KC can be defined on a part or an assembly. balloon_number ties the KC back to the
+#   drawing callout. qif_characteristic_id is the optional QIF traceability link.
+#
+# Entities: inspection_event, calibration_record, tool_gauge, key_characteristic
+
+entities:
+
+  inspection_event:
+    description: >
+      A lightweight UUID envelope for a bounded inspection session — a collection of
+      measurement results, PMI events, and visual records produced by one inspector (or
+      inspection crew) against one job / serial unit in a single sitting. The value of this
+      entity is providing a shared parent FK so that QIF result records, pmi_event records,
+      and photo/CMM-report attachments from the same session can be retrieved together.
+      inspection_event does not replicate measurement data: dimensional values live in
+      pmi_event, QIF files are referenced via file_reference, and photos link via upload_id.
+      It is not a workflow entity — no approval gates, no status progression. Terminal when
+      the session is saved.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the inspection session is opened in the production system
+      event_type:
+        type: enum
+        required: true
+        values: [Receiving_Inspection, InProcess_Inspection, Final_Inspection, Source_Inspection, First_Article]
+        description: Type of inspection session
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — specific unit inspected, if serialized
+      lot_id:
+        type: uuid
+        required: false
+        description: FK → material_lot.id — lot inspected, if lot-based receiving inspection
+      operation_id:
+        type: uuid
+        required: false
+        description: FK → operation.id or assembly_operation.id — the routing step this session closes
+      inspector_id:
+        type: uuid
+        required: true
+        description: FK → user.id — lead inspector for this session
+      inspection_date:
+        type: date
+        required: true
+      result_summary:
+        type: enum
+        required: false
+        values: [Pass, Fail, Conditional, Pending]
+        description: Overall session result; may be derived from child pmi_event pass/fail flags
+      fai_package_id:
+        type: uuid
+        required: false
+        description: FK → certification_package.id (where includes_fai = true) — links First Article inspection sessions to the FAI cert package
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_job:
+        target: job
+        cardinality: many-to-one
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+      for_lot:
+        target: material_lot
+        cardinality: many-to-one
+      conducted_by:
+        target: user
+        cardinality: many-to-one
+      produces_pmi_events:
+        target: pmi_event
+        cardinality: one-to-many
+        description: Individual point-measurement events collected in this session
+      includes_qif_results:
+        target: qif_result
+        cardinality: one-to-many
+        description: QIF result files imported for this session
+      has_attachments:
+        target: upload
+        cardinality: one-to-many
+        description: Photos, CMM reports, visual inspection forms attached to this session
+      for_fai_package:
+        target: certification_package
+        cardinality: many-to-one
+
+  calibration_record:
+    description: >
+      Immutable audit record of a single calibration event performed on a tool or gauge.
+      One record per calibration event — the record is never modified after creation.
+      The result of the event (Pass, Fail, Adjusted) and the next-due date are recorded at
+      creation time. tool_gauge.current_calibration_id always points to the most recent
+      calibration_record. Lifecycle tracking (Current / Due_Soon / Overdue / Quarantined)
+      is on tool_gauge.calibration_status, not on this record.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the calibration record is logged in the production system
+      tool_gauge_id:
+        type: uuid
+        required: true
+        description: FK → tool_gauge.id — the instrument that was calibrated
+      calibration_date:
+        type: date
+        required: true
+        description: Date the calibration was performed
+      calibration_due_date:
+        type: date
+        required: true
+        description: Date by which the next calibration must be completed
+      calibration_interval_days:
+        type: integer
+        required: true
+        description: Interval in days used to compute calibration_due_date from calibration_date
+      performed_by:
+        type: enum
+        required: true
+        values: [In_House, External_Lab]
+        description: Whether calibration was performed in-house or by an accredited external lab
+      lab_name:
+        type: string
+        required: false
+        description: External lab name (required when performed_by = External_Lab)
+      lab_accreditation:
+        type: string
+        required: false
+        description: Lab accreditation body and certificate number
+        examples: ["A2LA #3742.01", "NVLAP Lab Code 200462-0"]
+      calibration_standard:
+        type: string
+        required: false
+        description: Traceable standard used for calibration
+        examples: ["NIST-traceable gauge blocks", "ANSI/NCSL Z540-1"]
+      certificate_number:
+        type: string
+        required: false
+        description: Calibration certificate number from the lab or in-house record
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Adjusted]
+        description: >
+          Pass: instrument within tolerance; no adjustment needed.
+          Fail: instrument out of tolerance; retired or returned to vendor.
+          Adjusted: instrument was adjusted back into tolerance during calibration.
+      as_found_in_tolerance:
+        type: boolean
+        required: false
+        description: Whether the instrument was within tolerance BEFORE any adjustment (as-found condition)
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the calibration certificate PDF stored in the production system
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_tool:
+        target: tool_gauge
+        cardinality: many-to-one
+
+  tool_gauge:
+    description: >
+      A physical measurement instrument or torque tool owned by the manufacturer and tracked for
+      calibration currency. Carries the mutable calibration lifecycle state; each calibration
+      event produces an immutable calibration_record. tool_gauge.current_calibration_id
+      always points to the most recent record. mtconnect_tool_asset_id bridges to the
+      MTConnect CuttingTool asset model used for in-house machine tooling data.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      asset_tag:
+        type: string
+        required: true
+        description: the manufacturer asset tag number (physical label on the instrument)
+        examples: ["CAL-0042", "TW-0007", "CMM-PROBE-001"]
+      name:
+        type: string
+        required: true
+        description: Instrument name
+        examples: ["Mitutoyo 0-6in Caliper", "Snap-on 3/8-Drive Torque Wrench", "Renishaw TP20 Probe"]
+      tool_type:
+        type: enum
+        required: true
+        values: [Caliper, Micrometer, CMM_Probe, Torque_Wrench, XRF_Gun, Go_NoGo_Gauge, Ring_Gauge, Pin_Gauge, Indicator, Height_Gauge, Surface_Plate, Optical_Comparator, Other]
+      manufacturer:
+        type: string
+        required: false
+      model_number:
+        type: string
+        required: false
+      serial_number:
+        type: string
+        required: false
+        description: Manufacturer serial number (distinct from the manufacturer asset tag)
+      range_description:
+        type: string
+        required: false
+        description: Measurement range and resolution
+        examples: ["0–6 in, 0.0005 in resolution", "0–150 in-lb, ±2%"]
+      calibration_interval_days:
+        type: integer
+        required: true
+        description: Required calibration frequency in days
+      current_calibration_id:
+        type: uuid
+        required: false
+        description: FK → calibration_record.id — the most recent calibration record
+      calibration_due_date:
+        type: date
+        required: false
+        description: Denormalized due date from current_calibration_id for fast status checks
+      calibration_status:
+        type: enum
+        required: true
+        values: [Current, Due_Soon, Overdue, Quarantined, Retired]
+        description: >
+          Current: within calibration interval.
+          Due_Soon: within 30 days of calibration_due_date.
+          Overdue: past calibration_due_date; must not be used for production measurements.
+          Quarantined: pulled from service pending calibration or investigation.
+          Retired: permanently removed from service.
+      location:
+        type: string
+        required: false
+        description: Physical location or assigned area
+        examples: ["QC Lab", "CMM Room", "Op 10 Lathe Area"]
+      mtconnect_tool_asset_id:
+        type: string
+        required: false
+        description: MTConnect CuttingTool asset ID — bridges this record to the MTConnect asset model for machine-integrated tooling
+      assigned_to_id:
+        type: uuid
+        required: false
+        description: FK → user.id — operator or inspector the tool is assigned to (optional; gauges may be shared)
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      has_calibration_records:
+        target: calibration_record
+        cardinality: one-to-many
+      current_calibration:
+        target: calibration_record
+        cardinality: many-to-one
+        description: Most recent calibration record (FK = current_calibration_id)
+      used_in_torque_records:
+        target: torque_readings_record
+        cardinality: one-to-many
+        description: Torque execution records where this wrench was the instrument used
+      used_in_pmi_events:
+        target: pmi_event
+        cardinality: one-to-many
+        description: PMI measurement events where this gauge was the instrument used
+
+    state_machine:
+      description: >
+        Calibration currency lifecycle for a physical tool or gauge. Transitions are driven
+        by time (calibration_due_date approaching or passing) and calibration events (a new
+        calibration_record with result = Pass or Adjusted moves the tool back to Current).
+        Quarantined is the hold state for overdue instruments or tools under investigation.
+        Retired is the terminal state.
+      initial_state: Current
+      terminal_states: [Retired]
+      states:
+        Current:
+          description: Instrument is within its calibration interval; may be used for production measurements
+        Due_Soon:
+          description: Within 30 days of calibration_due_date; instrument is still usable but calibration must be scheduled
+        Overdue:
+          description: Past calibration_due_date; must not be used for production or quality measurements; Quarantined automatically
+        Quarantined:
+          description: Pulled from service; awaiting calibration, investigation, or damage assessment; must not be used
+        Retired:
+          description: Permanently removed from service; no further calibration events expected; terminal state
+      transitions:
+        - from: Current
+          to: Due_Soon
+          trigger: System detects calibration_due_date is within 30 days of today
+        - from: Current
+          to: Overdue
+          trigger: System detects calibration_due_date has passed with no new calibration_record
+        - from: Current
+          to: Quarantined
+          trigger: Tool pulled from service by inspector or quality engineer (damage, suspected reading error, investigation)
+        - from: Current
+          to: Retired
+          trigger: Tool permanently decommissioned (damaged beyond repair, sold, disposed)
+        - from: Due_Soon
+          to: Current
+          trigger: New calibration_record created with result = Pass or Adjusted
+          guard: calibration_record.calibration_date ≤ today; calibration_record.result in [Pass, Adjusted]
+        - from: Due_Soon
+          to: Overdue
+          trigger: System detects calibration_due_date has passed with no new calibration_record
+        - from: Due_Soon
+          to: Quarantined
+          trigger: Tool pulled from service before calibration is completed
+        - from: Overdue
+          to: Quarantined
+          trigger: System auto-quarantines tool when status transitions to Overdue (guard: cannot remain Overdue in production use)
+        - from: Quarantined
+          to: Current
+          trigger: New calibration_record created with result = Pass or Adjusted; tool released from hold
+          guard: calibration_record.result in [Pass, Adjusted]
+        - from: Quarantined
+          to: Retired
+          trigger: Investigation or damage assessment determines tool cannot be returned to service
+
+  key_characteristic:
+    description: >
+      A design or engineering attribute flagged as requiring elevated measurement attention
+      and traceability — typically because variation in the feature directly impacts fit,
+      function, safety, or regulatory compliance. KCs are defined on a part (by design) or
+      an assembly (by integration engineering). At the manufacturer layer, key_characteristic records
+      drive which PMI callouts must be measured and reported per serial unit rather than
+      sampled. balloon_number ties the KC to its drawing callout; qif_characteristic_id
+      provides optional traceability to the corresponding QIF characteristic definition.
+      Uses polymorphic FK (subject_id + subject_type) per Decision 1.9.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — the design object on which the KC is defined (polymorphic)
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator for the polymorphic subject_id FK
+      balloon_number:
+        type: string
+        required: false
+        description: Drawing balloon callout number tying this KC to its drawing annotation
+        examples: ["KC-01", "14", "⬦3"]
+      characteristic_name:
+        type: string
+        required: true
+        description: Human-readable characteristic description
+        examples: ["Bore diameter true position", "Flange face flatness", "Thread engagement depth"]
+      characteristic_type:
+        type: enum
+        required: true
+        values: [KC, Safety_Critical, Dimensional, GD_T, Functional, Regulatory]
+        description: >
+          KC: Key Characteristic per AS9100/customer contract definition.
+          Safety_Critical: safety-of-flight feature; traceability required.
+          Dimensional: standard dimensional tolerance (not KC-designated).
+          GD_T: geometric dimensioning and tolerancing callout.
+          Functional: functional performance attribute (not purely dimensional).
+          Regulatory: regulatory compliance feature (e.g., ITAR-controlled geometry).
+      nominal:
+        type: number
+        required: false
+        description: Nominal value
+      tolerance_plus:
+        type: number
+        required: false
+        description: Plus tolerance from nominal
+      tolerance_minus:
+        type: number
+        required: false
+        description: Minus tolerance from nominal (typically expressed as a positive number)
+      unit:
+        type: string
+        required: false
+        description: Measurement unit
+        examples: ["in", "mm", "deg", "in/in"]
+      measurement_frequency:
+        type: enum
+        required: false
+        values: [Every_Piece, First_And_Last, First_Piece_Only, Sample_Per_Lot, Customer_Directed]
+        description: Required measurement frequency for this characteristic
+      qif_characteristic_id:
+        type: string
+        required: false
+        description: QIF characteristic UUID or identifier from the QIF inspection plan, for QIF-based traceability
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      on_part:
+        target: part
+        cardinality: many-to-one
+        description: Set when subject_type = part
+      on_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: Set when subject_type = assembly
+      measured_in:
+        target: pmi_event
+        cardinality: one-to-many
+        description: PMI measurement events that record a reading for this characteristic

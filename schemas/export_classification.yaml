@@ -1,0 +1,125 @@
+# schemas/export_classification.yaml
+#
+# Layer-1 coverage: No Layer-1 manufacturing standard (STEP AP242, QIF, MTConnect, X12)
+# defines export control classification. ITAR (22 CFR 120-130) and EAR (15 CFR 730-774)
+# are the governing regulatory frameworks. The USML (22 CFR 121) and CCL (15 CFR Supp. 1
+# to Part 774) are the control lists.
+#
+# Prose source: extensions/ip-boundary.md (ITAR Data Handling),
+#               reference/domain-map.md §6 (Sales and Quoting) and §8 (Compliance)
+#               reference/composition-archetypes.md (has_classification edge, all archetypes)
+#
+# Note: export_compliance_declaration is a cert_type within certification_document
+# (Decision 1.6 / schemas/certification_document.yaml). This entity classifies an article;
+# the certification_document records a shipment-level compliance declaration.
+
+entities:
+
+  export_classification:
+    description: >
+      The export control classification of a part or assembly under ITAR and/or EAR.
+      A classification record is created when a new part number is entered into the
+      system and reviewed whenever the part design changes or regulations update.
+      Drives which customers can receive the part, which vendors can process it,
+      and how its technical data must be handled.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system item master when classification is assigned
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — the article being classified
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator for subject_id polymorphic FK
+      classification_type:
+        type: enum
+        required: true
+        values: [EAR99, EAR_Controlled, ITAR, Unclassified_Pending_Review]
+        description: >
+          EAR99 = subject to EAR but no license required for most destinations.
+          EAR_Controlled = has a specific ECCN on the Commerce Control List; may require license.
+          ITAR = on USML (22 CFR 121); requires DDTC registration and potentially a license.
+          Unclassified_Pending_Review = classification not yet determined; block from shipment.
+      eccn:
+        type: string
+        required: false
+        description: >
+          Export Control Classification Number (when classification_type = EAR_Controlled).
+          Format: X#XXX (e.g., 9E991, 1C350, 0A501).
+        examples: ["9E991", "0A501", "2B350"]
+      usml_category_id:
+        type: uuid
+        required: false
+        description: FK → usml_category.id — USML category when classification_type = ITAR
+      usml_subcategory:
+        type: string
+        required: false
+        description: Sub-paragraph within the USML category (e.g., "Category VIII(h)(1)")
+        examples: ["Category VIII(h)(1)", "Category XV(f)"]
+      license_required:
+        type: boolean
+        required: false
+        description: True if an export license (ITAR DSP-5 or EAR BIS license) is required for export
+      applicable_exemptions:
+        type: string[]
+        required: false
+        description: >
+          ITAR exemptions or EAR license exceptions that may apply
+          (e.g., "ITAR §126.6(c) Canada", "ITAR §125.4(b)(13)", "EAR NLR")
+        examples: [["ITAR §126.6(c)"], ["EAR NLR"]]
+      classified_by:
+        type: uuid
+        required: false
+        description: FK → user.id — who performed the classification
+      classification_date:
+        type: date
+        required: true
+        description: Date the classification determination was made
+      reviewed_date:
+        type: date
+        required: false
+        description: Date of most recent periodic review (export classifications must be re-reviewed periodically)
+      review_due_date:
+        type: date
+        required: false
+        description: Date by which next review is due
+      classification_basis:
+        type: string
+        required: false
+        description: >
+          Narrative explaining the basis for the classification determination.
+          Required for ITAR and EAR_Controlled items; documents the reasoning.
+        examples: [
+          "Part designed under DoD prime contract; drawing marked ITAR. USML Cat XV(f) — spacecraft components.",
+          "Commercial off-the-shelf bracket; no defense application. EAR99."
+        ]
+      notes:
+        type: string
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Active, Superseded, Under_Review]
+        description: Active = current classification; Superseded = replaced by a new record; Under_Review = classification being re-evaluated
+
+    relationships:
+      classifies_part:
+        target: part
+        cardinality: many-to-one
+        description: When subject_type = part
+      classifies_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: When subject_type = assembly
+      references_usml:
+        target: usml_category
+        cardinality: many-to-one
+        description: When classification_type = ITAR
+      classified_by_user:
+        target: user
+        cardinality: many-to-one

@@ -1,0 +1,243 @@
+# schemas/purchase_order.yaml
+#
+# Layer-1 coverage:
+#   X12 850: Inbound PO from customer. NOT what this entity covers.
+#   X12 850 can also represent outbound POs in some implementations, but for the manufacturer the
+#   canonical outbound PO is generated in the production system and optionally transmitted via EDI.
+#   No X12 standard governs the manufacturer's outbound purchase data structure in a way that maps
+#   cleanly to a structured entity — the X12 850 is the transmission format, not the
+#   source of truth for the purchase record.
+#
+# Layer-2 (Manufacturer Extension): Generic outbound PO from the manufacturer to a supplier.
+#   Covers material purchases, sub-tier outside processing, services, and opex per
+#   Decision 1.4 (two-tier resolution: customer_purchase_order stays distinct as inbound).
+#   sub_tier_purchase_order is an alias of purchase_order with po_kind: sub_tier.
+#   Sub-tier POs carry quality clause flowdowns from quality_flowdown_plan.subtier_flowdowns[].
+#
+# State machine: Required for all lifecycle-bearing entities.
+#   States: Draft → Pending_Approval → Issued → Acknowledged → Partially_Received →
+#           Fully_Received → Closed | Cancelled
+#   Terminal states: Closed, Cancelled
+#
+# Prose source: extensions/outside-processing.md (outside process PO workflow),
+#               extensions/quality-flowdowns.md (subtier flowdown generation)
+# Cluster: Supply Chain (Phase 2.E)
+# Sibling schemas: schemas/customer_purchase_order.yaml, schemas/supplier.yaml,
+#                  schemas/outside_process_operation.yaml, schemas/receipt.yaml
+
+entities:
+
+  purchase_order:
+    description: >
+      Generic outbound purchase order from the manufacturer to a supplier. Covers material procurement
+      (raw stock, hardware), sub-tier outside process work, services, and operating expense
+      purchases. po_kind discriminates the type; sub_tier_purchase_order is an alias for
+      purchase_order with po_kind: sub_tier. Quality clause flowdowns attach to sub-tier
+      POs via the quality_flowdown_plan.subtier_flowdowns[] reference. Per Decision 1.4,
+      customer_purchase_order (inbound X12 850) is a distinct entity with its own
+      schema and lifecycle.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when PO is created in the production system
+      po_number:
+        type: string
+        required: true
+        description: shop internal PO number issued to the supplier
+      po_kind:
+        type: enum
+        required: true
+        values: [material, sub_tier, services, opex]
+        description: >
+          material = raw material or hardware purchase from a distributor or mill.
+          sub_tier = outside process work for a specific job (the sub_tier_purchase_order alias).
+          services = tooling, calibration, consulting, or other technical services.
+          opex = operating expense (office supplies, consumables, non-job-specific).
+      supplier_id:
+        type: uuid
+        required: true
+        description: "FK → supplier.id — the supplier receiving this PO"
+      po_date:
+        type: date
+        required: true
+        description: Date PO was issued to supplier
+      required_date:
+        type: date
+        required: false
+        description: Date by which goods or services are required (may drive scheduling)
+      job_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → job.id — the job this PO supports (sub_tier POs only; null for non-job purchases)"
+      outside_process_op_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → outside_process_operation.id — the specific OP this sub_tier PO serves"
+      contract_ref:
+        type: string
+        required: false
+        description: Customer's prime contract number (passed through on sub-tier POs for DFARS traceability)
+      itar_marking:
+        type: boolean
+        required: false
+        default: false
+        description: Whether this PO and its attachments include ITAR-controlled technical data
+      line_items:
+        type: array
+        required: true
+        description: PO line items (material, work, or services being purchased)
+        items:
+          line_number:
+            type: integer
+            required: true
+          description:
+            type: string
+            required: true
+          quantity:
+            type: number
+            required: true
+          unit_of_measure:
+            type: string
+            required: true
+            examples: ["EA", "LBS", "FT", "LOT"]
+          unit_price:
+            type: number
+            required: false
+          currency:
+            type: string
+            required: false
+            default: "USD"
+            description: ISO 4217 currency code
+          spec_reference:
+            type: string
+            required: false
+            description: "Process or material spec for this line (e.g., 'AMS 2759/3 to H1025')"
+          certs_required:
+            type: array
+            required: false
+            description: "Certification types required with this line (e.g., ['CoC', 'ProcessChart', 'MTR'])"
+            items:
+              type: string
+      flowdown_clauses:
+        type: array
+        required: false
+        description: "FK[] → quality_clause.id — quality clauses flowed down to this supplier"
+        items:
+          type: uuid
+      flowdown_document:
+        type: string
+        required: false
+        description: Reference to the flowdown clause text document attached to this PO
+      total_amount:
+        type: number
+        required: false
+      currency:
+        type: string
+        required: false
+        default: "USD"
+      payment_terms:
+        type: string
+        required: false
+        description: "Net payment terms (e.g., 'Net 30')"
+      status:
+        type: enum
+        required: true
+        values:
+          - Draft
+          - Pending_Approval
+          - Issued
+          - Acknowledged
+          - Partially_Received
+          - Fully_Received
+          - Closed
+          - Cancelled
+        description: Current lifecycle state of this PO
+
+    state_machine:
+      description: >
+        Purchase order lifecycle from creation through fulfillment.
+        Terminal states are Closed and Cancelled.
+      initial_state: Draft
+      terminal_states: [Closed, Cancelled]
+      states:
+        Draft:
+          description: PO created in the production system but not yet submitted for approval or issued to supplier
+        Pending_Approval:
+          description: PO submitted for internal approval (required for POs above approval threshold)
+        Issued:
+          description: PO issued (sent) to supplier; supplier has not yet acknowledged
+        Acknowledged:
+          description: Supplier has confirmed receipt and acceptance of the PO; committed delivery date set
+        Partially_Received:
+          description: At least one line item has been received; one or more remain outstanding
+        Fully_Received:
+          description: All line items have been received and receiving inspections are complete
+        Closed:
+          description: PO closed; all invoices matched and paid; records archived
+        Cancelled:
+          description: PO cancelled before fulfillment; supplier notified
+      transitions:
+        - from: Draft
+          to: Pending_Approval
+          trigger: Submitted for internal approval (amount exceeds approval threshold)
+        - from: Draft
+          to: Issued
+          trigger: Issued to supplier (below approval threshold or approval not required)
+        - from: Pending_Approval
+          to: Issued
+          trigger: Internal approval granted
+        - from: Pending_Approval
+          to: Cancelled
+          trigger: Approval rejected or PO withdrawn
+        - from: Issued
+          to: Acknowledged
+          trigger: Supplier acknowledges PO receipt and confirms delivery date
+        - from: Issued
+          to: Cancelled
+          trigger: PO withdrawn before supplier acknowledgment
+        - from: Acknowledged
+          to: Partially_Received
+          trigger: Partial goods/services received and receiving record created
+        - from: Acknowledged
+          to: Fully_Received
+          trigger: Complete order received in a single delivery
+        - from: Acknowledged
+          to: Cancelled
+          trigger: Supplier unable to fulfill; PO cancelled
+        - from: Partially_Received
+          to: Fully_Received
+          trigger: Remaining quantities received
+        - from: Partially_Received
+          to: Cancelled
+          trigger: Remaining quantities cancelled
+        - from: Fully_Received
+          to: Closed
+          trigger: Invoice matched and payment processed; PO record closed
+
+    relationships:
+      issued_to_supplier:
+        target: supplier
+        cardinality: many-to-one
+        description: The supplier receiving this PO
+      supports_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+        description: The job this PO supports (sub_tier POs only)
+      covers_outside_process_op:
+        target: outside_process_operation
+        cardinality: many-to-one
+        nullable: true
+        description: The specific outside process operation this sub_tier PO fulfills
+      has_receipts:
+        target: receipt
+        cardinality: one-to-many
+        description: Receiving records against this PO
+      flows_quality_clauses:
+        target: quality_clause
+        cardinality: one-to-many
+        nullable: true
+        description: Quality clauses flowed down to the supplier via this PO

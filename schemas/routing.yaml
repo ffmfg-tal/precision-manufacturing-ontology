@@ -1,0 +1,333 @@
+# schemas/routing.yaml
+#
+# Layer-1 coverage: STEP AP238 (ISO 10303-238) defines CNC process plans in a neutral
+# format. STEP AP238 adoption at the manufacturer layer is near zero — most CMs receive 2D PDFs.
+# MTConnect streams machine state for in-house operations but has no process-plan schema.
+# Neither standard has a concept for off-site (outside-process) operations within a routing.
+#
+# Prose source: reference/composition-archetypes.md (all three archetypes),
+#               reference/domain-map.md §3 (Manufacturing)
+#
+# Architectural decisions:
+#   routing is the process plan TEMPLATE for a part (one-to-one with part.id)
+#   assembly_routing is the assembly process plan TEMPLATE for an assembly (one-to-one
+#     with assembly.id); it is a DISTINCT entity because assembly operations carry torque
+#     control, fastener traceability, and witness inspection that do not apply to machining
+#   operation is a single in-house work step in a routing template; maps conceptually to
+#     STEP AP238 MACHINING_OPERATION but adds MTConnect linkage
+#   work_order (see schemas/job.yaml) is the EXECUTION INSTANCE of an operation on a
+#     specific job — operation is the template, work_order is the run; machine_event
+#     edges live on work_order, not on operation
+#   assembly_operation enriches operation with torque, fastener, and witness fields
+#   outside_process_operation is the hybrid entity for off-site ops (schemas/outside_process_operation.yaml)
+#
+# Entities: routing, operation, work_center, assembly_routing, assembly_operation
+
+entities:
+
+  routing:
+    description: >
+      The process plan template for a part — the ordered sequence of in-house and
+      outside-process operations required to produce the finished part from raw stock.
+      One routing per part+revision; a Released routing drives job creation. Corresponds
+      conceptually to STEP AP238 PROCESS_PLAN but adds manufacturer-layer fields (status lifecycle,
+      outside-process op references) not present in that standard.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the routing record is created
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the part this routing produces
+      routing_revision:
+        type: string
+        required: true
+        description: Routing document revision; may track with part revision or advance independently
+        examples: ["A", "B", "1", "2"]
+      description:
+        type: string
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Draft, Released, Obsolete]
+        description: Released routings are active for job creation; Obsolete routings are historical record only
+      created_date:
+        type: date
+        required: true
+      released_date:
+        type: date
+        required: false
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part this routing produces
+      contains_operation:
+        target: operation
+        cardinality: one-to-many
+        description: In-house operations in sequence order
+      contains_outside_op:
+        target: outside_process_operation
+        cardinality: one-to-many
+        description: Outside-process operations in sequence order (see schemas/outside_process_operation.yaml)
+
+  operation:
+    description: >
+      A single in-house work step within a part routing. operation is the TEMPLATE:
+      it defines what to do (operation code, description), where to do it (work center),
+      and optionally which process specification governs it. The execution instance of an
+      operation on a specific job is a work_order (schemas/job.yaml) — machine_event edges
+      attach to work_order, not to operation. Maps conceptually to STEP AP238
+      MACHINING_OPERATION with manufacturer-layer additions (process specification reference,
+      MTConnect work center linkage).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the routing operation record is created
+      routing_id:
+        type: uuid
+        required: true
+        description: FK → routing.id
+      sequence_number:
+        type: integer
+        required: true
+        description: Operation order in the routing; conventionally in increments of 10
+        examples: [10, 20, 30, 40]
+      operation_code:
+        type: string
+        required: true
+        description: Short type code for the operation
+        examples: ["SETUP", "MILL", "TURN", "DRILL", "INSPECT", "DEBURR", "CLEAN"]
+      description:
+        type: string
+        required: true
+        description: Human-readable operation name
+        examples: ["5-axis rough mill", "CMM first-article inspection", "Deburr and clean"]
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id — the default machine or station for this operation
+      process_specification_id:
+        type: uuid
+        required: false
+        description: FK → process_specification.id — only populated for special in-house processes (e.g., in-house NDT)
+      setup_time_minutes:
+        type: number
+        required: false
+        description: Standard setup time in minutes
+      run_time_minutes:
+        type: number
+        required: false
+        description: Standard run time per piece in minutes
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_routing:
+        target: routing
+        cardinality: many-to-one
+      performed_at:
+        target: work_center
+        cardinality: many-to-one
+        description: Default work center assignment from the routing template
+      runs_spec:
+        target: process_specification
+        cardinality: many-to-one
+        description: Optional process specification for in-house special processes
+      instantiated_as:
+        target: work_order
+        cardinality: one-to-many
+        description: Work order execution instances of this operation template (one per job)
+
+  work_center:
+    description: >
+      A named machine, workstation, or inspection station where operations execute.
+      Work centers are physical resources — a specific CNC machine, a CMM, an assembly
+      bench. Multiple operations across multiple routings and jobs share a work center,
+      enabling capacity planning and scheduling. MTConnect agents are mapped to specific
+      work centers, making the work center the link between production system routing data and
+      the MTConnect machine data stream.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system work center master
+      name:
+        type: string
+        required: true
+        description: Descriptive name for the work center
+        examples: ["Mazak 5-axis #1", "CMM – Renishaw Equator", "Assembly cell", "Saw cell"]
+      code:
+        type: string
+        required: true
+        description: Short identifier used in routing documents and scheduling
+        examples: ["MAZAK-1", "CMM-EQ", "ASSY", "SAW"]
+      machine_type:
+        type: string
+        required: false
+        description: Equipment classification
+        examples: ["5-axis VMC", "CMM", "Lathe", "Inspection bench", "Assembly bench"]
+      department:
+        type: string
+        required: false
+        examples: ["Machining", "Inspection", "Assembly", "Material Prep"]
+      capacity_type:
+        type: enum
+        required: true
+        values: [Machine, Labor, Inspection]
+      mtconnect_device_id:
+        type: string
+        required: false
+        description: MTConnect device identifier if this work center has an MTConnect agent; used to correlate machine events to work center operations
+
+      active:
+        type: boolean
+        required: true
+
+  assembly_routing:
+    description: >
+      The assembly process plan template for an assembly — the ordered sequence of kitting,
+      fastener installation, torque-controlled bolt-up, and inspection operations. Distinct
+      from routing (which covers machining operations) because assembly operations carry
+      torque specifications, fastener traceability, and witness inspection requirements
+      that do not apply to machining.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the assembly routing record is created
+      assembly_id:
+        type: uuid
+        required: true
+        description: FK → assembly.id
+      routing_revision:
+        type: string
+        required: true
+        examples: ["A", "B", "1"]
+      status:
+        type: enum
+        required: true
+        values: [Draft, Released, Obsolete]
+      torque_specification_id:
+        type: uuid
+        required: false
+        description: FK → torque_specification.id — assembly-level torque standard; individual assembly_operation may override
+      created_date:
+        type: date
+        required: true
+      released_date:
+        type: date
+        required: false
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_assembly:
+        target: assembly
+        cardinality: many-to-one
+      contains_operation:
+        target: assembly_operation
+        cardinality: one-to-many
+
+  assembly_operation:
+    description: >
+      A single step within an assembly routing. Extends the base operation concept with
+      torque control, fastener traceability, and witness inspection signoff — attributes
+      that do not apply to machining operations. These additions support AS9102 Rev C
+      Form 1 (assembly P/N accountability) and quality clause QA-010 (torque documentation
+      required). The kit-staging variant produces a kit_record; the bolt-up variant produces
+      a torque_readings_record and may require a witness_inspection signoff.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when assembly operation record is created
+      assembly_routing_id:
+        type: uuid
+        required: true
+        description: FK → assembly_routing.id
+      sequence_number:
+        type: integer
+        required: true
+        examples: [10, 20, 30]
+      operation_code:
+        type: string
+        required: true
+        examples: ["KIT", "TORQUE", "INSPECT", "SAFETY", "SEAL", "CLEAN"]
+      description:
+        type: string
+        required: true
+        examples: ["Stage fastener kit for main flange", "Install and torque 12× AN6-12A bolts", "Final CMM concentricity check"]
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id (e.g., "Assembly cell")
+      process_specification_id:
+        type: uuid
+        required: false
+        description: FK → process_specification.id (e.g., NASM 33540 for safetying, NASM 1312 for fastener installation)
+      fastener_id:
+        type: uuid
+        required: false
+        description: FK → fastener.id — if this operation installs a specific fastener type
+      fastener_quantity:
+        type: integer
+        required: false
+        description: Number of fasteners installed at this step
+      torque_specification_id:
+        type: uuid
+        required: false
+        description: FK → torque_specification.id — overrides assembly-level torque spec for this op
+      torque_sequence_id:
+        type: uuid
+        required: false
+        description: FK → torque_sequence.id — the named installation pattern (e.g., star pattern, cross pattern)
+      requires_witness:
+        type: boolean
+        required: true
+        description: True if a quality engineer signoff is required at completion of this step
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_routing:
+        target: assembly_routing
+        cardinality: many-to-one
+      performed_at:
+        target: work_center
+        cardinality: many-to-one
+      runs_spec:
+        target: process_specification
+        cardinality: many-to-one
+        description: Optional process specification governing this assembly step
+      uses_fastener:
+        target: fastener
+        cardinality: many-to-one
+        description: Fastener type installed at this step
+      has_torque_spec:
+        target: torque_specification
+        cardinality: many-to-one
+        description: Step-level torque spec override
+      produces_kit_record:
+        target: kit_record
+        cardinality: one-to-many
+        description: Kit records produced by kitting/staging operations
+      produces_torque_record:
+        target: torque_readings_record
+        cardinality: one-to-many
+        description: Torque readings captured during bolt-up operations
+      requires_witness_insp:
+        target: witness_inspection
+        cardinality: one-to-many
+        description: Witness inspection records for quality engineer signoff steps

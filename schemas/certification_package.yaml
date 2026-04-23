@@ -1,0 +1,142 @@
+# schemas/certification_package.yaml
+#
+# Layer-1 coverage:
+#   No Layer-1 standard defines a certification package as a queryable entity.
+#   - The cert package is typically a PDF envelope or physical binder assembled per
+#     customer requirement. AS9102 Form 3 lists required documentation; there is no
+#     machine-readable "package" schema in QIF, X12, or STEP.
+#   - X12 856 ASN notes the shipment; the cert package is a separate transmission
+#     (email attachment, customer portal upload, or physical inclusion in the box).
+#   The certification_package is a Layer-2 entity providing machine-readable assembly
+#   of the document set that ships with or after each delivery.
+#
+# Architectural decisions:
+#   certification_package is a collection entity: it references certification_documents
+#   (material certs), process_certifications (outside process CoCs/charts), QIF inspection
+#   results, and FAI packages. It does not embed the documents — it holds UUIDs and
+#   transmittal metadata.
+#
+#   Assembly-level packages: contained_packages[] supports nesting (assembly package
+#   references component packages) per Decision 1.9 certification_package design.
+#   Components ship with their own cert packages; the assembly package references each
+#   component package rather than duplicating cert content.
+#
+#   Scope: one certification_package per shipment per customer. If partial shipments
+#   occur, each shipment has its own package; the prior package is referenced by serial.
+#
+# Entities: certification_package
+
+entities:
+
+  certification_package:
+    description: >
+      A machine-readable assembly of the certification documents transmitted to a customer
+      with or after a delivery. Collects material certification_documents (MTR, material CoC,
+      DFARS Declaration), process_certifications (outside process CoCs, process charts, NDT
+      reports), QIF inspection results, FAI packages, and the the manufacturer Certificate of Conformance.
+      Provides audit-trail evidence that all required certs were assembled and transmitted.
+      Assembly-level packages nest component packages via contained_packages[].
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the cert package is assembled for a shipment
+      package_number:
+        type: string
+        required: false
+        description: Human-readable cert package reference number
+        examples: ["CP-25-0412-001"]
+      shipment_id:
+        type: uuid
+        required: true
+        description: FK → shipment.id — the shipment this package accompanies
+      sales_order_id:
+        type: uuid
+        required: false
+        description: FK → sales_order.id
+      customer_id:
+        type: uuid
+        required: true
+        description: FK → customer.id — the package recipient
+      covered_serial_ids:
+        type: uuid[]
+        required: false
+        description: serial_number.id[] — units covered by this package
+      covered_lot_ids:
+        type: uuid[]
+        required: false
+        description: material_lot.id[] — lots covered (when lot-controlled rather than serialized)
+      material_cert_ids:
+        type: uuid[]
+        required: false
+        description: certification_document.id[] — material certs (MTR, material CoC, DFARS Declaration)
+      process_cert_ids:
+        type: uuid[]
+        required: false
+        description: process_certification.id[] — outside process CoCs, process charts, NDT reports
+      fai_package_id:
+        type: uuid
+        required: false
+        description: FK → first_article_inspection.id — FAI package if FAI is required and included
+      inspection_result_ids:
+        type: uuid[]
+        required: false
+        description: qif_results_document.id[] — CMM/inspection results included in the package
+      ffm_coc_id:
+        type: uuid
+        required: false
+        description: certification_document.id (cert_type: CoC) — the manufacturer's Certificate of Conformance for this shipment
+      contained_package_ids:
+        type: uuid[]
+        required: false
+        description: >
+          certification_package.id[] — component-level packages for assemblies. Assembly-level
+          packages reference each component cert package rather than duplicating cert content.
+      assembly_level:
+        type: boolean
+        required: true
+        description: True if this is an assembly-level package that nests component packages
+      transmittal_method:
+        type: enum
+        required: false
+        values: [Physical_In_Box, Email_Attachment, Customer_Portal, EDI_Attachment]
+        description: How the cert package was transmitted to the customer
+      transmitted_date:
+        type: date
+        required: false
+        description: Date the package was transmitted; null until transmitted
+      all_certs_complete:
+        type: boolean
+        required: true
+        description: True when all required certs per the quality_flowdown_plan are present and linked
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_shipment:
+        target: shipment
+        cardinality: many-to-one
+      for_customer:
+        target: customer
+        cardinality: many-to-one
+      contains_material_certs:
+        target: certification_document
+        cardinality: one-to-many
+        description: Material certification documents included in this package
+      contains_process_certs:
+        target: process_certification
+        cardinality: one-to-many
+        description: Outside process certification documents included in this package
+      includes_fai:
+        target: first_article_inspection
+        cardinality: many-to-one
+        description: FAI package if applicable
+      covers_serials:
+        target: serial_number
+        cardinality: one-to-many
+        description: Serial numbers covered by this certification package
+      nests_component_packages:
+        target: certification_package
+        cardinality: one-to-many
+        description: Component-level packages for assembly-level cert packages

@@ -1,0 +1,1413 @@
+# Relationship graph for the precision-manufacturing-ontology
+# Generated: 2026-04-22 (coherence pass, Task 8)
+#
+# Machine-readable enumeration of every edge in the ontology. Consumed by
+# agent traversal, graph visualization, and downstream deepening tasks.
+#
+# Extraction sources (see 'source' field values):
+#   - archetype_a / archetype_b / archetype_c: edges derived from the
+#     decomposition trees in reference/composition-archetypes.md
+#   - schemas/material.yaml: edges from explicit `relationships:` blocks
+#   - extensions/<doc>.md: edges from YAML schema ref fields and prose in
+#     extensions/material-certs.md, outside-processing.md, quality-flowdowns.md,
+#     supplier-approval.md, uuid-discipline.md, ip-boundary.md
+#   - reference/domain-map.md: edges explicit in the domain-map prose
+#
+# Deduplication: identical (from, to, verb) triples are merged; their
+# sources are unioned. Inverse edges (e.g., `certifies` vs `certified_by`)
+# are NOT emitted separately; the edge is stored in the direction it was
+# first expressed (typically the archetype tree).
+#
+# Entity names: snake_case, matching reference/entity-inventory.yaml.
+#
+# Cardinality values: one-to-one | one-to-many | many-to-one | many-to-many
+
+relationships:
+
+  # ============================================================
+  # PART / ASSEMBLY DECOMPOSITION
+  # ============================================================
+
+  - from: part
+    to: part_specification
+    verb: specified_by
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/part.yaml]
+
+  - from: part
+    to: export_classification
+    verb: has_classification
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/part.yaml, schemas/export_classification.yaml]
+
+  - from: part
+    to: customer_approval
+    verb: has_approval_state
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/part.yaml, schemas/customer_approval.yaml]
+
+  - from: part
+    to: material
+    verb: composed_of
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: part
+    to: routing
+    verb: produced_via
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: part
+    to: first_article_inspection
+    verb: inspected_under
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: part
+    to: serial_number
+    verb: produces
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b]
+
+  - from: part
+    to: shipment
+    verb: shipped_under
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b]
+
+  - from: part
+    to: serial_number
+    verb: consumes_serial
+    cardinality: one-to-many
+    source: [archetype_c]
+
+  - from: assembly
+    to: part_specification
+    verb: specified_by
+    cardinality: many-to-one
+    source: [archetype_c, schemas/part.yaml]
+
+  - from: assembly
+    to: export_classification
+    verb: has_classification
+    cardinality: many-to-one
+    source: [archetype_c, schemas/part.yaml, schemas/export_classification.yaml]
+
+  - from: assembly
+    to: customer_approval
+    verb: has_approval_state
+    cardinality: many-to-one
+    source: [archetype_c, schemas/part.yaml, schemas/customer_approval.yaml]
+
+  - from: assembly
+    to: bom_line
+    verb: composed_of
+    cardinality: one-to-many
+    source: [schemas/part.yaml]
+
+  - from: assembly
+    to: part
+    verb: contains_part
+    cardinality: one-to-many
+    source: [archetype_c, schemas/part.yaml]
+
+  - from: assembly
+    to: assembly_routing
+    verb: assembled_via
+    cardinality: one-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly
+    to: first_article_inspection
+    verb: inspected_under
+    cardinality: one-to-one
+    source: [archetype_c]
+
+  - from: assembly
+    to: serial_number
+    verb: produces
+    cardinality: one-to-many
+    source: [archetype_c]
+
+  - from: assembly
+    to: shipment
+    verb: shipped_under
+    cardinality: one-to-one
+    source: [archetype_c]
+
+  # ============================================================
+  # EXPORT CLASSIFICATION
+  # ============================================================
+
+  - from: export_classification
+    to: usml_category
+    verb: has_category
+    cardinality: many-to-one
+    source: [archetype_b, archetype_c, schemas/export_classification.yaml]
+
+  - from: export_classification
+    to: export_classification
+    verb: inherits_classification
+    cardinality: many-to-one
+    source: [archetype_c]
+
+  - from: export_classification
+    to: user
+    verb: classified_by_user
+    cardinality: many-to-one
+    source: [schemas/export_classification.yaml]
+
+  # ============================================================
+  # BOM_LINE
+  # ============================================================
+
+  - from: bom_line
+    to: part
+    verb: child_part
+    cardinality: many-to-one
+    source: [schemas/part.yaml]
+    description: When bom_line.child_type = part
+
+  - from: bom_line
+    to: assembly
+    verb: child_assembly
+    cardinality: many-to-one
+    source: [schemas/part.yaml]
+    description: When bom_line.child_type = assembly
+
+  - from: bom_line
+    to: material
+    verb: child_material
+    cardinality: many-to-one
+    source: [schemas/part.yaml]
+    description: When bom_line.child_type = material
+
+  - from: bom_line
+    to: part
+    verb: parent_part
+    cardinality: many-to-one
+    source: [schemas/part.yaml]
+    description: When bom_line.parent_type = part
+
+  - from: bom_line
+    to: assembly
+    verb: parent_assembly
+    cardinality: many-to-one
+    source: [schemas/part.yaml]
+    description: When bom_line.parent_type = assembly
+
+  # ============================================================
+  # CUSTOMER_APPROVAL
+  # ============================================================
+
+  - from: customer_approval
+    to: customer
+    verb: from_customer
+    cardinality: many-to-one
+    source: [schemas/customer_approval.yaml]
+
+  - from: customer_approval
+    to: fai_package
+    verb: supported_by_fai
+    cardinality: many-to-one
+    source: [schemas/customer_approval.yaml]
+
+  # ============================================================
+  # MATERIAL / MATERIAL_SPECIFICATION / MATERIAL_LOT
+  # ============================================================
+
+  - from: material
+    to: material_specification
+    verb: specified_by
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml]
+
+  - from: material
+    to: material_lot
+    verb: procured_as
+    cardinality: one-to-many
+    source: [schemas/material.yaml]
+
+  - from: material
+    to: bom_line
+    verb: consumed_by
+    cardinality: one-to-many
+    source: [schemas/material.yaml]
+
+  - from: material
+    to: supplier
+    verb: supplied_by
+    cardinality: many-to-many
+    source: [schemas/material.yaml]
+
+  - from: material_specification
+    to: uns_number
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: material_specification
+    to: material_condition
+    verb: has_condition
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml]
+
+  - from: material_specification
+    to: spec_body
+    verb: has_spec_body
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml, extensions/material-certs.md]
+
+  - from: material_lot
+    to: material
+    verb: instance_of
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml]
+
+  - from: material_lot
+    to: certification_document
+    verb: certified_by
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml, extensions/material-certs.md]
+
+  - from: material_lot
+    to: heat_number
+    verb: has_heat
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: material_lot
+    to: country
+    verb: has_melt_country
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml]
+
+  - from: material_lot
+    to: purchase_order
+    verb: purchased_via
+    cardinality: many-to-one
+    source: [schemas/material.yaml, extensions/material-certs.md]
+
+  - from: material_lot
+    to: job
+    verb: consumed_by
+    cardinality: one-to-many
+    source: [schemas/material.yaml]
+
+  - from: material_lot
+    to: inventory_location
+    verb: stored_at
+    cardinality: many-to-one
+    source: [schemas/material.yaml, extensions/material-certs.md]
+
+  - from: material_lot
+    to: supplier
+    verb: supplied_by
+    cardinality: many-to-one
+    source: [schemas/material.yaml, extensions/material-certs.md]
+
+  - from: material_lot
+    to: material_specification
+    verb: conforms_to
+    cardinality: many-to-one
+    source: [extensions/material-certs.md, schemas/material.yaml]
+
+  - from: material_lot
+    to: pmi_event
+    verb: verified_by
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c, schemas/material.yaml]
+
+  - from: pmi_event
+    to: material_lot
+    verb: tests_lot
+    cardinality: many-to-one
+    source: [schemas/pmi_event.yaml]
+
+  - from: material_condition
+    to: material_specification
+    verb: belongs_to_spec
+    cardinality: many-to-one
+    source: [schemas/material_condition.yaml]
+
+  # ============================================================
+  # CERTIFICATION DOCUMENT CHAIN
+  # ============================================================
+
+  - from: certification_document
+    to: material_lot
+    verb: certifies
+    cardinality: many-to-one
+    source: [schemas/certification_document.yaml]
+
+  - from: certification_document
+    to: material_specification
+    verb: references_spec
+    cardinality: many-to-one
+    source: [extensions/material-certs.md, schemas/certification_document.yaml]
+
+  # ============================================================
+  # ROUTING / OPERATION
+  # ============================================================
+
+  - from: routing
+    to: operation
+    verb: contains_operation
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c, schemas/routing.yaml]
+
+  - from: routing
+    to: outside_process_operation
+    verb: contains_operation
+    cardinality: one-to-many
+    source: [archetype_b, schemas/routing.yaml]
+
+  - from: operation
+    to: work_center
+    verb: performed_at
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/routing.yaml]
+
+  # operation→machine_event (produces) migrated to work_order→machine_event (produces_events)
+  # in Phase 2.C. operation is the routing template; machine events are execution artifacts
+  # that belong to the work_order instance. See WORK_ORDER section below.
+
+  - from: operation
+    to: process_specification
+    verb: runs
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/routing.yaml]
+
+  - from: operation
+    to: work_order
+    verb: instantiated_as
+    cardinality: one-to-many
+    source: [schemas/routing.yaml]
+    description: work_order execution instances of this operation template (one per job)
+
+  # ============================================================
+  # OUTSIDE PROCESS OPERATION (hybrid: op + PO + cert collection)
+  # ============================================================
+
+  - from: outside_process_operation
+    to: supplier
+    verb: has_supplier
+    cardinality: many-to-one
+    source: [archetype_b, extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: process_specification
+    verb: runs
+    cardinality: many-to-one
+    source: [archetype_b, extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: sub_tier_purchase_order
+    verb: issued_via
+    cardinality: many-to-one
+    source: [archetype_b, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: shipment
+    verb: ships_out_via
+    cardinality: one-to-one
+    source: [archetype_b]
+
+  - from: outside_process_operation
+    to: process_certification
+    verb: results_in
+    cardinality: one-to-many
+    source: [archetype_b, extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: shipment_inbound
+    verb: returns_with
+    cardinality: one-to-one
+    source: [archetype_b, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: job
+    verb: belongs_to_job
+    cardinality: many-to-one
+    source: [extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: purchase_order
+    verb: issued_via_po
+    cardinality: many-to-one
+    source: [extensions/outside-processing.md]
+    # NOTE: schemas/outside_process_operation.yaml uses sub_tier_purchase_order_id as the FK.
+    # Per Decision 1.4, sub_tier_purchase_order is an alias for purchase_order with po_kind: sub_tier
+    # (schemas/purchase_order.yaml). The FK will be renamed to purchase_order_id in Phase 3.2 matrix
+    # regen. This edge (→ purchase_order) is retained from outside-processing.md prose as the
+    # correct resolved target; see also purchase_order → outside_process_operation (for_outside_process)
+    # in PHASE 2.E — PURCHASE ORDER section above.
+
+  - from: outside_process_operation
+    to: serial_number
+    verb: tracks_items_at_supplier
+    cardinality: many-to-many
+    source: [extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: material_lot
+    verb: tracks_items_at_supplier
+    cardinality: many-to-many
+    source: [extensions/outside-processing.md]
+
+  - from: outside_process_operation
+    to: quality_clause
+    verb: flows_down
+    cardinality: one-to-many
+    source: [extensions/outside-processing.md, schemas/outside_process_operation.yaml]
+
+  - from: outside_process_operation
+    to: nadcap_category
+    verb: has_nadcap_category
+    cardinality: many-to-one
+    source: [extensions/outside-processing.md]
+
+  # ============================================================
+  # SHIPMENT_INBOUND
+  # ============================================================
+
+  - from: shipment_inbound
+    to: process_certification
+    verb: includes_document
+    cardinality: one-to-many
+    source: [archetype_b]
+
+  # ============================================================
+  # PROCESS CERTIFICATION
+  # ============================================================
+
+  - from: process_certification
+    to: process_specification
+    verb: references
+    cardinality: many-to-one
+    source: [extensions/outside-processing.md]
+
+  # ============================================================
+  # PROCESS SPECIFICATION
+  # ============================================================
+
+  - from: process_specification
+    to: nadcap_category
+    verb: has_nadcap_category
+    cardinality: many-to-one
+    source: [archetype_b]
+
+  - from: process_specification
+    to: spec_body
+    verb: has_spec_body
+    cardinality: many-to-one
+    source: [archetype_b, archetype_c, extensions/outside-processing.md]
+
+  # ============================================================
+  # SUPPLIER / SUPPLIER_APPROVAL / NADCAP
+  # ============================================================
+
+  - from: supplier
+    to: supplier_approval
+    verb: approved_via
+    cardinality: one-to-one
+    source: [archetype_b]
+
+  - from: supplier_approval
+    to: nadcap_certification
+    verb: scope_certified_by
+    cardinality: one-to-many
+    source: [archetype_b, extensions/supplier-approval.md]
+
+  - from: supplier_approval
+    to: process_specification
+    verb: approved_for
+    cardinality: one-to-many
+    source: [archetype_b, extensions/supplier-approval.md]
+
+  # supplier_approval→customer (approved_by_customer) retained for archetype continuity.
+  # Canonical replacement: approved_supplier_list_entry→customer (approved_by_customer)
+  # in PHASE 2.E — APPROVED SUPPLIER LIST ENTRY section above.
+  - from: supplier_approval
+    to: customer
+    verb: approved_by_customer
+    cardinality: one-to-many
+    source: [extensions/supplier-approval.md]
+
+  # supplier_approval→supplier (qualifies_supplier) retained for archetype continuity.
+  # supplier_approval is the deprecated archetype-B alias; canonical entity is
+  # approved_supplier_list_entry. The canonical edge is approved_supplier_list_entry→supplier
+  # (for_supplier) added in PHASE 2.E — APPROVED SUPPLIER LIST ENTRY section above.
+  - from: supplier_approval
+    to: supplier
+    verb: qualifies_supplier
+    cardinality: many-to-one
+    source: [extensions/supplier-approval.md]
+
+  - from: nadcap_certification
+    to: nadcap_category
+    verb: has_nadcap_category
+    cardinality: many-to-one
+    source: [archetype_b, extensions/supplier-approval.md]
+
+  - from: supplier
+    to: process_specification
+    verb: qualified_for_spec
+    cardinality: many-to-many
+    source: [extensions/outside-processing.md]
+
+  - from: supplier
+    to: customer
+    verb: approved_by_customer
+    cardinality: many-to-many
+    source: [extensions/outside-processing.md]
+
+  - from: customer_asl
+    to: customer
+    verb: owned_by
+    cardinality: many-to-one
+    source: [extensions/supplier-approval.md]
+
+  - from: customer_asl
+    to: supplier
+    verb: lists_approved_supplier
+    cardinality: one-to-many
+    source: [extensions/supplier-approval.md]
+
+  - from: supplier_qualification_event
+    to: supplier
+    verb: qualifies
+    cardinality: many-to-one
+    source: [extensions/supplier-approval.md]
+
+  # ============================================================
+  # PHASE 2.E — APPROVED SUPPLIER LIST ENTRY
+  # (supplier_approval edges above are archetype_b originals retained for
+  #  traceability; canonical name is approved_supplier_list_entry per Decision 1.3)
+  # ============================================================
+
+  - from: supplier
+    to: approved_supplier_list_entry
+    verb: has_asl_entry
+    cardinality: one-to-many
+    source: [schemas/supplier.yaml]
+    description: the manufacturer qualification records for this supplier
+
+  - from: supplier
+    to: supplier_qualification_event
+    verb: has_qualification_events
+    cardinality: one-to-many
+    source: [schemas/supplier.yaml]
+    description: Audit-trail events for this supplier's approval lifecycle
+
+  - from: approved_supplier_list_entry
+    to: supplier
+    verb: for_supplier
+    cardinality: many-to-one
+    source: [schemas/approved_supplier_list_entry.yaml]
+
+  - from: approved_supplier_list_entry
+    to: nadcap_certification
+    verb: has_nadcap_certs
+    cardinality: many-to-many
+    source: [schemas/approved_supplier_list_entry.yaml]
+    description: Nadcap certificates held by this supplier (via nadcap_certification_ids[] FK array)
+
+  - from: approved_supplier_list_entry
+    to: customer
+    verb: approved_by_customer
+    cardinality: many-to-many
+    source: [schemas/approved_supplier_list_entry.yaml]
+    description: Customer-specific approvals embedded in customer_approvals[] sub-array
+
+  - from: nadcap_certification
+    to: supplier
+    verb: held_by_supplier
+    cardinality: many-to-one
+    source: [schemas/nadcap_certification.yaml]
+
+  - from: nadcap_certification
+    to: approved_supplier_list_entry
+    verb: listed_on_asl_entry
+    cardinality: many-to-many
+    source: [schemas/nadcap_certification.yaml]
+
+  - from: nadcap_category
+    to: nadcap_certification
+    verb: has_certifications
+    cardinality: one-to-many
+    source: [schemas/nadcap_category.yaml]
+
+  # ============================================================
+  # PHASE 2.E — CUSTOMER
+  # ============================================================
+
+  - from: customer
+    to: customer_purchase_order
+    verb: places_purchase_orders
+    cardinality: one-to-many
+    source: [schemas/customer.yaml]
+
+  - from: customer
+    to: customer_asl
+    verb: has_asl_documents
+    cardinality: one-to-many
+    source: [schemas/customer.yaml]
+
+  - from: customer
+    to: customer_approval
+    verb: has_customer_approvals
+    cardinality: one-to-many
+    source: [schemas/customer.yaml]
+    description: Customer_approval records for each P/N+rev the manufacturer is approved to produce for this customer
+
+  # ============================================================
+  # PHASE 2.E — PURCHASE ORDER / CUSTOMER PURCHASE ORDER
+  # ============================================================
+
+  - from: purchase_order
+    to: supplier
+    verb: issued_to_supplier
+    cardinality: many-to-one
+    source: [schemas/purchase_order.yaml]
+
+  - from: purchase_order
+    to: receipt
+    verb: fulfilled_by_receipt
+    cardinality: one-to-many
+    source: [schemas/purchase_order.yaml]
+
+  - from: purchase_order
+    to: outside_process_operation
+    verb: for_outside_process
+    cardinality: one-to-one
+    source: [schemas/purchase_order.yaml]
+    description: The OP this sub-tier PO was issued for (when po_kind = sub_tier)
+
+  - from: customer_purchase_order
+    to: customer
+    verb: placed_by_customer
+    cardinality: many-to-one
+    source: [schemas/customer_purchase_order.yaml]
+
+  - from: customer_purchase_order
+    to: quality_flowdown_plan
+    verb: generates_flowdown
+    cardinality: one-to-one
+    source: [schemas/customer_purchase_order.yaml]
+    description: Quality flowdown plan created from this customer PO's quality clauses
+
+  # ============================================================
+  # PHASE 2.E — SHIPMENT (unified, direction-discriminated)
+  # ============================================================
+
+  - from: shipment
+    to: customer_purchase_order
+    verb: fulfills_customer_po
+    cardinality: many-to-one
+    source: [schemas/shipment.yaml]
+    description: The customer PO this outbound shipment fulfills (outbound only)
+
+  - from: shipment
+    to: purchase_order
+    verb: against_purchase_order
+    cardinality: many-to-one
+    source: [schemas/shipment.yaml]
+    description: Supplier PO associated with this inbound shipment
+
+  - from: shipment
+    to: serial_number
+    verb: ships_serials
+    cardinality: one-to-many
+    source: [schemas/shipment.yaml]
+    description: Serialized units in this shipment
+
+  - from: shipment
+    to: material_lot
+    verb: ships_lots
+    cardinality: one-to-many
+    source: [schemas/shipment.yaml]
+    description: Material lots in this shipment (inbound only)
+
+  - from: shipment
+    to: job
+    verb: ships_job
+    cardinality: many-to-one
+    source: [schemas/shipment.yaml]
+    description: The job whose parts are being shipped
+
+  - from: shipment
+    to: receipt
+    verb: has_receipt
+    cardinality: one-to-many
+    source: [schemas/shipment.yaml]
+    description: Receiving record(s) for this inbound shipment
+
+  # ============================================================
+  # PHASE 2.E — RECEIPT
+  # ============================================================
+
+  - from: receipt
+    to: shipment
+    verb: acknowledges_shipment
+    cardinality: many-to-one
+    source: [schemas/receipt.yaml]
+    description: The inbound shipment this receipt acknowledges
+
+  - from: receipt
+    to: purchase_order
+    verb: closes_purchase_order
+    cardinality: many-to-one
+    source: [schemas/receipt.yaml]
+    description: The PO this receipt fulfills (partial or complete)
+
+  - from: receipt
+    to: user
+    verb: received_by_user
+    cardinality: many-to-one
+    source: [schemas/receipt.yaml]
+    description: the manufacturer user who received the goods at the dock
+
+  - from: receipt
+    to: material_lot
+    verb: creates_material_lots
+    cardinality: one-to-many
+    source: [schemas/receipt.yaml]
+    description: Material lots created or updated by this receipt
+
+  - from: receipt
+    to: nonconformance_report
+    verb: triggers_ncr
+    cardinality: many-to-one
+    source: [schemas/receipt.yaml]
+    description: NCR created if receiving inspection found nonconformance
+
+  - from: receipt
+    to: outside_process_operation
+    verb: returns_outside_process_op
+    cardinality: many-to-one
+    source: [schemas/receipt.yaml]
+    description: The outside process operation returned by this receipt (outside process returns only)
+
+  # ============================================================
+  # JOB / CUSTOMER PO / SUB-TIER PO / FLOWDOWN
+  # ============================================================
+
+  - from: customer_purchase_order
+    to: job
+    verb: creates
+    cardinality: one-to-one
+    source: [archetype_b, archetype_c]
+
+  - from: customer_purchase_order
+    to: quality_clause
+    verb: cites
+    cardinality: one-to-many
+    source: [archetype_b, archetype_c]
+
+  - from: job
+    to: quality_clause
+    verb: inherits_clauses
+    cardinality: one-to-many
+    source: [archetype_b, archetype_c, schemas/job.yaml]
+
+  - from: job
+    to: sub_tier_purchase_order
+    verb: propagates_to
+    cardinality: one-to-many
+    source: [archetype_b, schemas/job.yaml]
+
+  - from: job
+    to: job
+    verb: references_child_job
+    cardinality: one-to-many
+    source: [archetype_c]
+
+  - from: sub_tier_purchase_order
+    to: quality_clause
+    verb: flows_down
+    cardinality: one-to-many
+    source: [archetype_b]
+
+  # ============================================================
+  # QUALITY CLAUSE / QUALITY FLOWDOWN PLAN
+  # ============================================================
+
+  - from: quality_clause
+    to: customer
+    verb: defined_by
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: sales_order
+    verb: covers_sales_order
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: job
+    verb: covers_job
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: customer
+    verb: covers_customer
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: quality_clause
+    verb: aggregates_clause
+    cardinality: one-to-many
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: purchase_order
+    verb: flows_to_subtier_po
+    cardinality: one-to-many
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: quality_flowdown_plan
+    to: supplier
+    verb: flows_to_subtier_supplier
+    cardinality: one-to-many
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  # ============================================================
+  # PHASE 2.F — SALES ORDER
+  # ============================================================
+
+  - from: sales_order
+    to: customer
+    verb: placed_by_customer
+    cardinality: many-to-one
+    source: [schemas/sales_order.yaml]
+
+  - from: sales_order
+    to: customer_purchase_order
+    verb: originates_from_cpo
+    cardinality: many-to-one
+    source: [schemas/sales_order.yaml]
+
+  - from: sales_order
+    to: job
+    verb: produces_jobs
+    cardinality: one-to-many
+    source: [schemas/sales_order.yaml]
+
+  - from: sales_order
+    to: quality_flowdown_plan
+    verb: inherits_flowdown
+    cardinality: many-to-one
+    source: [schemas/sales_order.yaml]
+
+  # ============================================================
+  # PHASE 2.F — CERTIFICATION PACKAGE (SCHEMA-SOURCE EDGES)
+  # Note: archetype-sourced cert_package edges exist in
+  # SHIPMENT / CERT PACKAGE section below; source-upgrading
+  # deferred to Phase 3.2 matrix regen. New schema edges here.
+  # ============================================================
+
+  - from: certification_package
+    to: shipment
+    verb: for_shipment
+    cardinality: many-to-one
+    source: [schemas/certification_package.yaml]
+
+  - from: certification_package
+    to: sales_order
+    verb: covers_sales_order
+    cardinality: many-to-one
+    source: [schemas/certification_package.yaml]
+
+  - from: certification_package
+    to: serial_number
+    verb: covers_serials
+    cardinality: one-to-many
+    source: [schemas/certification_package.yaml]
+
+  - from: certification_package
+    to: first_article_inspection
+    verb: includes_fai
+    cardinality: many-to-one
+    source: [schemas/certification_package.yaml]
+
+  # ============================================================
+  # PHASE 2.F — INVENTORY LOCATION
+  # ============================================================
+
+  - from: inventory_location
+    to: inventory_location
+    verb: child_of
+    cardinality: many-to-one
+    source: [schemas/inventory_location.yaml]
+    description: Self-referential hierarchy; parent_location_id FK supports warehouse → zone → bin nesting
+
+  - from: inventory_location
+    to: supplier
+    verb: holds_supplier
+    cardinality: many-to-one
+    source: [schemas/inventory_location.yaml]
+    description: For Off_Site location type; the outside processor holding material at this location
+
+  # ============================================================
+  # PHASE 2.F — USER
+  # ============================================================
+
+  - from: user
+    to: work_order
+    verb: assigned_work_orders
+    cardinality: one-to-many
+    source: [schemas/user.yaml]
+
+  - from: user
+    to: nonconformance_report
+    verb: authored_ncrs
+    cardinality: one-to-many
+    source: [schemas/user.yaml]
+
+  # ============================================================
+  # FIRST ARTICLE INSPECTION (AS9102)
+  # ============================================================
+
+  - from: first_article_inspection
+    to: as9102_form_1
+    verb: includes_form
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/quality.yaml]
+    description: form1 is an embedded sub-object of first_article_inspection in schemas/quality.yaml
+
+  - from: first_article_inspection
+    to: as9102_form_2
+    verb: includes_form
+    cardinality: one-to-one
+    source: [archetype_b, archetype_c, schemas/quality.yaml]
+    description: form2 is an embedded sub-object of first_article_inspection in schemas/quality.yaml
+
+  - from: first_article_inspection
+    to: as9102_form_3
+    verb: includes_form
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c, schemas/quality.yaml]
+    description: form3 is an embedded sub-object of first_article_inspection in schemas/quality.yaml
+
+  - from: first_article_inspection
+    to: part
+    verb: inspects_part
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+    description: "When subject_type = part; Decision 1.9 replaces item FK"
+
+  - from: first_article_inspection
+    to: assembly
+    verb: inspects_assembly
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+    description: "When subject_type = assembly; Decision 1.9 replaces item FK"
+
+  - from: first_article_inspection
+    to: sales_order
+    verb: produced_under
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: first_article_inspection
+    to: job
+    verb: produced_by_job
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: first_article_inspection
+    to: serial_number
+    verb: fai_unit
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: as9102_form_1
+    to: fai_form_1_header
+    verb: records
+    cardinality: one-to-one
+    source: [archetype_b, archetype_c]
+
+  - from: first_article_inspection
+    to: material_identification
+    verb: has_form2_line
+    cardinality: one-to-many
+    source: [schemas/material_identification.yaml, schemas/quality.yaml]
+    description: "as9102_form_2 is an embedded sub-object of first_article_inspection (Phase 2.D); material_identification records link to the FAI UUID via fai_id FK"
+
+  # DEPRECATED (Phase 2.D): as9102_form_2 → process_identification (records, one-to-many)
+  #   archetype-sourced; process_identification has no schema and is not a canonical entity.
+  #   Form 2 process spec lines are handled by material_identification with spec_type = Process.
+
+  # DEPRECATED (Phase 2.D): as9102_form_2 → first_article_inspection (includes_fai, one-to-many)
+  #   Direction was inverted (Form 2 belongs to one FAI, not vice versa). Superseded by
+  #   as9102_form_2 being an embedded sub-object of first_article_inspection in schemas/quality.yaml.
+
+  - from: as9102_form_3
+    to: qif_results_document
+    verb: references
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c, extensions/quality-flowdowns.md]
+
+  - from: material_identification
+    to: material_specification
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_b, archetype_c, schemas/material_identification.yaml]
+
+  - from: material_identification
+    to: certification_document
+    verb: references_material_cert
+    cardinality: many-to-one
+    source: [archetype_b, archetype_c, schemas/material_identification.yaml]
+    description: "Material cert (MTR/CoC/DFARS); null for process-only lines"
+
+  - from: material_identification
+    to: process_certification
+    verb: references_process_cert
+    cardinality: many-to-one
+    source: [schemas/material_identification.yaml]
+    description: "Process cert (Nadcap CoC/chart); null for material-only lines"
+
+  - from: process_identification
+    to: process_specification
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_b, archetype_c]
+
+  - from: process_identification
+    to: process_certification
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_b]
+
+  - from: process_identification
+    to: torque_readings_record
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_c]
+
+  # ============================================================
+  # QIF / CHARACTERISTIC MEASUREMENT
+  # ============================================================
+
+  - from: qif_results_document
+    to: characteristic_measurement
+    verb: records
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: characteristic_measurement
+    to: key_characteristic
+    verb: measures
+    cardinality: many-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: characteristic_measurement
+    to: calibration_record
+    verb: calibrated_with
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md]
+
+  # ============================================================
+  # SHIPMENT / CERT PACKAGE
+  # ============================================================
+
+  - from: shipment
+    to: certification_package
+    verb: includes_document
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: shipment
+    to: x12_856_asn
+    verb: carries_ref
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: certification_package
+    to: mtr
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b]
+
+  - from: certification_package
+    to: coc
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b]
+
+  - from: certification_package
+    to: dfars_declaration
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_a, archetype_b]
+
+  - from: certification_package
+    to: fai_package
+    verb: contains
+    cardinality: one-to-one
+    source: [archetype_a, archetype_b, archetype_c]
+
+  - from: certification_package
+    to: process_certification
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_b]
+
+  - from: certification_package
+    to: export_compliance_declaration
+    verb: contains
+    cardinality: one-to-one
+    source: [archetype_b, archetype_c]
+
+  - from: certification_package
+    to: certification_package
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_c]
+
+  - from: certification_package
+    to: torque_readings_record
+    verb: contains
+    cardinality: one-to-one
+    source: [archetype_c]
+
+  - from: certification_package
+    to: certification_document
+    verb: contains
+    cardinality: one-to-many
+    source: [archetype_c]
+    # NOTE: Archetype C shows the assembly cert package containing the
+    # witness inspection signoff and the fastener CoC as generic
+    # certification_document nodes. MTR/CoC/DFARS-specific edges are
+    # emitted separately above.
+
+  # ============================================================
+  # ASSEMBLY ROUTING / ASSEMBLY OPERATION
+  # ============================================================
+
+  - from: assembly_routing
+    to: assembly_operation
+    verb: contains_operation
+    cardinality: one-to-many
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: work_center
+    verb: performed_at
+    cardinality: many-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: kit_record
+    verb: produces
+    cardinality: one-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: process_specification
+    verb: runs
+    cardinality: many-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: fastener
+    verb: uses_fastener
+    cardinality: one-to-many
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: torque_specification
+    verb: has_torque_spec
+    cardinality: many-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: torque_sequence
+    verb: has_torque_sequence
+    cardinality: one-to-one
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: assembly_operation
+    to: torque_readings_record
+    verb: produces_torque_record
+    cardinality: one-to-many
+    source: [schemas/routing.yaml]
+    description: Torque readings captured during bolt-up operations; distinct from kit_record
+
+  - from: assembly_operation
+    to: witness_inspection
+    verb: witnessed_by
+    cardinality: one-to-many
+    source: [archetype_c, schemas/routing.yaml]
+    # cardinality updated to one-to-many (was one-to-one in archetype_c): some ops require
+    # multiple witness stages (first-pass torque + final-pass torque signoff).
+
+  - from: assembly_operation
+    to: qif_results_document
+    verb: produces
+    cardinality: one-to-many
+    source: [archetype_c, schemas/routing.yaml]
+
+  - from: fastener
+    to: certification_document
+    verb: certified_by
+    cardinality: one-to-many
+    source: [archetype_c]
+
+  - from: torque_specification
+    to: process_specification
+    verb: references
+    cardinality: many-to-one
+    source: [archetype_c]
+
+  - from: witness_inspection
+    to: quality_engineer
+    verb: performed_by
+    cardinality: many-to-one
+    source: [archetype_c]
+
+  - from: witness_inspection
+    to: torque_readings_record
+    verb: records
+    cardinality: one-to-one
+    source: [archetype_c]
+
+  # ============================================================
+  # NONCONFORMANCE REPORT
+  # ============================================================
+
+  - from: nonconformance_report
+    to: job
+    verb: raised_on_job
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: nonconformance_report
+    to: serial_number
+    verb: affects_serial
+    cardinality: one-to-many
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: nonconformance_report
+    to: material_lot
+    verb: affects_lot
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: nonconformance_report
+    to: part
+    verb: affects_part
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+    description: "When subject_type = part; Decision 1.9 replaces item FK"
+
+  - from: nonconformance_report
+    to: assembly
+    verb: affects_assembly
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+    description: "When subject_type = assembly; Decision 1.9 replaces item FK"
+
+  - from: nonconformance_report
+    to: user
+    verb: discovered_by
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  - from: nonconformance_report
+    to: job
+    verb: rework_job
+    cardinality: many-to-one
+    source: [extensions/quality-flowdowns.md, schemas/quality.yaml]
+
+  # ============================================================
+  # UUID DISCIPLINE CROSS-REFERENCES
+  # ============================================================
+  # Most UUID-propagation edges are identity correspondences across
+  # Layer 1 standards (MTConnect, QIF, X12) rather than inter-entity
+  # relationships. Only edges where both endpoints are inventoried
+  # entities and the relationship is structural are emitted here.
+
+  - from: job
+    to: serial_number
+    verb: contains_serial
+    cardinality: one-to-many
+    source: [extensions/uuid-discipline.md, schemas/job.yaml]
+
+  - from: job
+    to: work_order
+    verb: contains_work_order
+    cardinality: one-to-many
+    source: [schemas/job.yaml]
+    # Phase 2.C: replaces job→operation (contains_job_operation) from archetype/uuid-discipline
+    # sources. operation is the routing TEMPLATE; work_order is the execution INSTANCE per job.
+
+  - from: serial_number
+    to: qif_results_document
+    verb: measured_in
+    cardinality: one-to-many
+    source: [extensions/uuid-discipline.md, schemas/job.yaml]
+
+  - from: serial_number
+    to: material_lot
+    verb: consumed_material
+    cardinality: many-to-one
+    source: [schemas/job.yaml]
+    description: Material lot issued to this serial unit; basis for DFARS traceability chain
+
+  # ============================================================
+  # WORK_ORDER (execution instance of a routing operation on a job)
+  # ============================================================
+
+  - from: work_order
+    to: job
+    verb: in_job
+    cardinality: many-to-one
+    source: [schemas/job.yaml]
+
+  - from: work_order
+    to: operation
+    verb: from_operation
+    cardinality: many-to-one
+    source: [schemas/job.yaml]
+    description: Routing operation template this work_order instantiates
+
+  - from: work_order
+    to: work_center
+    verb: at_work_center
+    cardinality: many-to-one
+    source: [schemas/job.yaml]
+    description: Actual work center (may differ from routing template if reassigned)
+
+  - from: work_order
+    to: user
+    verb: assigned_to
+    cardinality: many-to-one
+    source: [schemas/job.yaml]
+    description: Operator assigned to execute this work order
+
+  - from: work_order
+    to: machine_event
+    verb: produces_events
+    cardinality: one-to-many
+    source: [schemas/job.yaml]
+    # Phase 2.C: machine_event edges moved from operation (template) to work_order (execution).
+    # MTConnect machine data is captured while a work_order is active, not at the template level.
+
+  - from: x12_856_asn
+    to: job
+    verb: carries_job_ref
+    cardinality: many-to-one
+    source: [extensions/uuid-discipline.md, extensions/ip-boundary.md]
+
+  - from: x12_856_asn
+    to: serial_number
+    verb: carries_serial_ref
+    cardinality: one-to-many
+    source: [extensions/uuid-discipline.md]

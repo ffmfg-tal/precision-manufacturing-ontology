@@ -1,0 +1,678 @@
+# schemas/quality.yaml
+#
+# Quality cluster: quality clause library, flowdown plans, First Article Inspection,
+# and nonconformance reports.
+#
+# Layer 1 coverage:
+#   QIF (ISO 23952 / ANSI QIF 3.0) — covers Form 3 dimensional characteristics only.
+#   X12 850 — carries quality obligations as unstructured MSG text or PDF attachment.
+#   No Layer-1 standard covers Forms 1 and 2, quality clause cascade, or NCR workflow.
+#
+# Prose source: extensions/quality-flowdowns.md
+# Domain: reference/domain-map.md §4 (Quality)
+#
+# Key decisions:
+#   Decision 1.9: item removed from canon. first_article_inspection and
+#   nonconformance_report use subject_id + subject_type: enum [part, assembly]
+#   (same polymorphic FK pattern as job, export_classification, customer_approval).
+#
+#   as9102_form_1, as9102_form_2, as9102_form_3 are embedded sub-objects within
+#   first_article_inspection, not standalone UUID-keyed entities. They share the
+#   FAI's identity scope. Their INDEX entries are updated to reference this file.
+#
+#   mrb_disposition is embedded within nonconformance_report; it carries no
+#   independent UUID. The INDEX entry for mrb_disposition references this file.
+
+entities:
+
+  quality_clause:
+    description: >
+      A specific quality obligation that can attach to a sales order and cascade
+      to the job and sub-tier vendor POs. Defines a reusable clause from the
+      the manufacturer library or a customer-specific definition.
+    attributes:
+      id:
+        type: uuid
+        description: UUID v4 per uuid-discipline.md
+      clause_code:
+        type: string
+        description: "Standard code (e.g., 'QA-001', 'Q-001')"
+      clause_source:
+        type: enum
+        values: [Customer, FFM_Standard, IAQG, AS9100, DoD_DFARS]
+      customer_id:
+        type: uuid
+        nullable: true
+        description: "-> customer.id; present only for customer-specific clause definitions"
+      title:
+        type: string
+        description: Short name
+      full_text:
+        type: string
+        description: Complete clause text; customer may have version-specific wording
+      category:
+        type: enum
+        values:
+          - QMS
+          - FAI
+          - Material_Cert
+          - RightOfAccess
+          - Nonconformance
+          - SubtierControl
+          - DFARS
+          - ITAR
+          - CounterfeitPrevention
+          - RecordRetention
+          - ChangeNotification
+          - FOD
+          - SPC
+          - Nadcap
+      flows_to_subtier:
+        type: boolean
+        description: Whether this clause must be included on sub-tier POs
+      triggers_job_requirement:
+        type: array
+        items:
+          type: enum
+          values:
+            - FAI_Required
+            - CoC_Required
+            - MTR_Required
+            - DFARS_Declaration
+            - Nadcap_Required
+            - SPC_Required
+            - SourceInspection_Required
+            - CustomerApproval_Required
+            - RecordRetention_Extended
+        description: What this clause creates as a derived requirement in the job
+      status:
+        type: enum
+        values: [Active, Superseded, Withdrawn]
+    relationships:
+      defined_by_customer:
+        target: customer
+        cardinality: many-to-one
+        nullable: true
+        description: Customer whose specific language this clause captures
+
+  quality_flowdown_plan:
+    description: >
+      The machine-readable set of quality obligations for a specific sales order / job.
+      Represents the quality addendum (currently communicated as PDF) in structured form.
+      Drives cert package requirements, sub-tier flowdowns, and FAI status tracking.
+    attributes:
+      id:
+        type: uuid
+        description: UUID v4
+      sales_order_id:
+        type: uuid
+        description: "-> sales_order.id"
+      job_id:
+        type: uuid
+        description: "-> job.id"
+      customer_id:
+        type: uuid
+        description: "-> customer.id"
+      created_date:
+        type: date
+      source_document:
+        type: string
+        description: Reference to the PO / quality addendum that defines these requirements
+      clauses:
+        type: array
+        description: Quality clauses in effect for this job
+        items:
+          clause_id:
+            type: uuid
+            description: "-> quality_clause.id"
+          customer_clause_number:
+            type: string
+            nullable: true
+            description: Customer's own clause numbering (may differ from QA-00x)
+          version:
+            type: string
+            nullable: true
+            description: Customer's revision of this clause
+          applies_to_subtier:
+            type: boolean
+          compliance_verified:
+            type: boolean
+          verification_notes:
+            type: string
+            nullable: true
+      # Derived requirements populated from active clauses
+      fai_required:
+        type: boolean
+      fai_status:
+        type: enum
+        values: [Not_Required, Open, Submitted, Approved, Rejected]
+        description: >
+          Tracks requirement fulfillment state for this job, not the FAI document's own approval
+          state. Conditionally_Approved is a first_article_inspection.status value; the plan only
+          needs to know if the FAI obligation is open, satisfied, or not required.
+      coc_required:
+        type: boolean
+      mtr_required:
+        type: boolean
+      dfars_required:
+        type: boolean
+      source_inspection_required:
+        type: boolean
+      nadcap_required:
+        type: boolean
+      spc_required:
+        type: boolean
+      record_retention_years:
+        type: integer
+        nullable: true
+      subtier_flowdowns:
+        type: array
+        description: Flowdown records generated on outside process POs
+        items:
+          po_id:
+            type: uuid
+            description: "-> purchase_order.id (the sub-tier PO)"
+          supplier_id:
+            type: uuid
+            description: "-> supplier.id"
+          clauses_flowed:
+            type: array
+            items:
+              type: uuid
+            description: "-> quality_clause.id[] — subset appropriate for this vendor"
+          flowdown_document:
+            type: string
+            nullable: true
+            description: Reference to the flowdown clause text sent to supplier
+    relationships:
+      covers_job:
+        target: job
+        cardinality: many-to-one
+      covers_sales_order:
+        target: sales_order
+        cardinality: many-to-one
+      covers_customer:
+        target: customer
+        cardinality: many-to-one
+      aggregates_clauses:
+        target: quality_clause
+        cardinality: one-to-many
+      flows_to_subtier_pos:
+        target: purchase_order
+        cardinality: one-to-many
+
+  first_article_inspection:
+    description: >
+      AS9102 Rev C compliant FAI record. Three forms in one coherent package.
+      Documents that for the first time (or after a qualifying change), an article
+      produced by the manufacturer conforms to all drawing requirements.
+      Applies to a part or assembly (subject_type discriminator per Decision 1.9).
+    attributes:
+      id:
+        type: uuid
+        description: UUID v4
+      subject_id:
+        type: uuid
+        description: "-> part.id or assembly.id per subject_type; replaces item_id (Decision 1.9)"
+      subject_type:
+        type: enum
+        values: [part, assembly]
+        description: Discriminator for subject_id polymorphic FK
+      part_number:
+        type: string
+      revision:
+        type: string
+      sales_order_id:
+        type: uuid
+        description: "-> sales_order.id (the job that produced the FAI unit)"
+      job_id:
+        type: uuid
+        description: "-> job.id"
+      serial_number_fai_unit:
+        type: uuid
+        description: "-> serial_number.id (the specific unit used as the FAI article)"
+      fai_reason:
+        type: enum
+        values:
+          - New_Part
+          - Design_Change
+          - Process_Change
+          - Production_Lapse
+          - Source_Change
+          - Sub_Change
+          - Manufacturing_Location_Change
+      production_lapse_years:
+        type: number
+        nullable: true
+        description: Populated when fai_reason = Production_Lapse; typical threshold is 2 years
+      fai_date:
+        type: date
+      status:
+        type: enum
+        values: [Open, Submitted, Approved, Rejected, Conditionally_Approved]
+      customer_approval_number:
+        type: string
+        nullable: true
+      customer_approval_date:
+        type: date
+        nullable: true
+      # ---- FORM 1: Part Number Accountability ----
+      # as9102_form_1 is a sub-object embedded here; see INDEX.md note
+      form1:
+        type: object
+        description: AS9102 Form 1 — Part Number Accountability
+        attributes:
+          organization_name:
+            type: string
+          cage_code:
+            type: string
+            description: the manufacturer CAGE code
+          drawing_number:
+            type: string
+          drawing_revision:
+            type: string
+          design_activity_name:
+            type: string
+            description: Customer name (design authority)
+          authorized_signature:
+            type: string
+          authorized_date:
+            type: date
+          partial_fai:
+            type: boolean
+            description: True if only affected characteristics are re-verified
+          partial_fai_justification:
+            type: string
+            nullable: true
+      # ---- FORM 2: Product Accountability (Materials and Processes) ----
+      # as9102_form_2 is a sub-object embedded here; its line items are standalone
+      # material_identification entities (schemas/material_identification.yaml) keyed by fai_id.
+      form2:
+        type: object
+        description: >
+          AS9102 Form 2 — Product Accountability (materials and processes).
+          Line items are material_identification records (standalone entities with UUIDs)
+          that reference this FAI via their fai_id FK. See schemas/material_identification.yaml.
+        attributes:
+          line_item_ids:
+            type: array
+            items:
+              type: uuid
+            description: "-> material_identification.id[] — Form 2 line items as standalone entities"
+      # ---- FORM 3: Characteristic Accountability ----
+      # as9102_form_3 is a sub-object embedded here
+      form3:
+        type: object
+        description: AS9102 Form 3 — Characteristic Accountability; links to QIF results by UUID
+        attributes:
+          qif_results_document:
+            type: string
+            description: QIF file UUID or file path reference
+          characteristics:
+            type: array
+            items:
+              characteristic_number:
+                type: integer
+                description: Balloon number from inspection drawing
+              characteristic_type:
+                type: enum
+                values: [Dimension, GDT, Surface_Finish, Thread, Note, Other]
+              drawing_requirement:
+                type: string
+                description: Nominal + tolerance as written on drawing
+              qif_characteristic_id:
+                type: uuid
+                nullable: true
+                description: "-> QIF characteristic UUID from inspection plan (null for manual entry)"
+              measured_value:
+                type: number
+                nullable: true
+              deviation:
+                type: number
+                nullable: true
+              upper_tolerance:
+                type: number
+                nullable: true
+              lower_tolerance:
+                type: number
+                nullable: true
+              pass_fail:
+                type: enum
+                values: [Pass, Fail, Not_Measured]
+              measuring_equipment:
+                type: string
+                nullable: true
+              equipment_calibration_id:
+                type: uuid
+                nullable: true
+                description: "-> calibration_record.id"
+              inspector:
+                type: string
+                nullable: true
+              measurement_date:
+                type: date
+                nullable: true
+      # FAI completeness flags
+      form1_complete:
+        type: boolean
+      form2_complete:
+        type: boolean
+      form3_complete:
+        type: boolean
+      fai_package_complete:
+        type: boolean
+        description: All three forms complete and internally consistent
+    relationships:
+      inspects_part:
+        target: part
+        cardinality: many-to-one
+        description: "When subject_type = part (Decision 1.9 replaces item FK)"
+      inspects_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: "When subject_type = assembly (Decision 1.9 replaces item FK)"
+      produced_by_job:
+        target: job
+        cardinality: many-to-one
+      produced_under_sales_order:
+        target: sales_order
+        cardinality: many-to-one
+      fai_unit:
+        target: serial_number
+        cardinality: many-to-one
+        description: The specific unit used as the FAI article
+
+    state_machine:
+      description: >
+        FAI lifecycle from package preparation through customer disposition. AS9102 Rev C
+        requires customer approval before production authorization. Approved and
+        Conditionally_Approved are both production-authorization states; conditions noted
+        in a Conditionally_Approved FAI must be tracked to closure. A Rejected FAI requires
+        root cause corrective action and a new FAI cycle (new first_article_inspection record).
+      initial_state: Open
+      terminal_states: [Approved, Conditionally_Approved, Rejected]
+      states:
+        Open:
+          description: FAI package in preparation; Forms 1, 2, and 3 being completed; not yet submitted to customer
+        Submitted:
+          description: Complete FAI package submitted to customer for review; production authorization pending
+        Approved:
+          description: Customer issued unconditional approval; production authorized; terminal state
+        Conditionally_Approved:
+          description: >
+            Customer approved with noted conditions or exceptions; production authorized within
+            those conditions; conditions tracked separately. Terminal state per AS9102 — no
+            further status transitions; conditions resolved through corrective action records.
+        Rejected:
+          description: >
+            Customer rejected the FAI; root cause corrective action required before re-submission.
+            A new first_article_inspection record is opened for the next FAI cycle.
+            This record closes in Rejected state as the permanent record of the rejection event.
+      transitions:
+        - from: Open
+          to: Submitted
+          trigger: FAI package submitted to customer
+          guard: form1_complete AND form2_complete AND form3_complete AND fai_package_complete
+        - from: Submitted
+          to: Approved
+          trigger: Customer issues unconditional FAI approval; customer_approval_number recorded
+        - from: Submitted
+          to: Conditionally_Approved
+          trigger: Customer issues conditional FAI approval with listed exceptions
+          guard: customer_approval_number recorded; conditions documented in notes or attached disposition letter
+        - from: Submitted
+          to: Rejected
+          trigger: Customer rejects FAI; written rejection notice received
+        - from: Rejected
+          to: Open
+          trigger: >
+            Corrective action complete; new FAI cycle opened. This transition creates a NEW
+            first_article_inspection record linked to the original rejected record via a corrective
+            action reference. The Rejected record is not modified — this transition is conceptual.
+
+  nonconformance_report:
+    description: >
+      Quality event record for any article that fails to meet a specified requirement.
+      Initiated from QIF out-of-tolerance results, receiving inspection, in-process
+      inspection, customer returns, or audits. Drives MRB disposition workflow.
+    attributes:
+      id:
+        type: uuid
+        description: UUID v4
+      ncr_number:
+        type: string
+        description: "Sequential NCR number (e.g., 'NCR-2025-0077')"
+      discovery_date:
+        type: date
+      discovery_source:
+        type: enum
+        values: [Receiving, InProcess, FinalInspection, Customer_Return, Audit]
+      job_id:
+        type: uuid
+        nullable: true
+        description: "-> job.id (null if material receiving NCR before job association)"
+      serial_ids:
+        type: array
+        items:
+          type: uuid
+        description: "-> serial_number.id[] — specific units affected"
+      lot_id:
+        type: uuid
+        nullable: true
+        description: "-> material_lot.id (populated for material nonconformances)"
+      subject_id:
+        type: uuid
+        description: "-> part.id or assembly.id per subject_type; replaces item_id (Decision 1.9)"
+      subject_type:
+        type: enum
+        values: [part, assembly]
+        description: Discriminator for subject_id polymorphic FK
+      quantity_nonconforming:
+        type: integer
+      quantity_total_in_lot:
+        type: integer
+        nullable: true
+      nonconformance_description:
+        type: string
+        description: What is wrong
+      characteristic_affected:
+        type: string
+        nullable: true
+        description: Which drawing requirement is not met
+      deviation_from_spec:
+        type: string
+        nullable: true
+        description: "Magnitude of the departure (e.g., '0.002 over tolerance')"
+      qif_result_reference:
+        type: uuid
+        nullable: true
+        description: "-> QIF characteristic UUID if triggered from CMM measurement"
+      discovered_by:
+        type: string
+        nullable: true
+      inspector_id:
+        type: uuid
+        nullable: true
+        description: "-> user.id"
+      equipment_used:
+        type: string
+        nullable: true
+      # Customer notification
+      customer_notification_required:
+        type: boolean
+        description: Per QA-006
+      customer_notified:
+        type: boolean
+      customer_notification_date:
+        type: date
+        nullable: true
+      customer_notification_method:
+        type: string
+        nullable: true
+      # MRB Disposition (embedded sub-object; mrb_disposition INDEX entry references this schema)
+      mrb_status:
+        type: enum
+        values: [Open, Convened, Disposition_Issued, Closed]
+      mrb_disposition:
+        type: enum
+        nullable: true
+        values:
+          - UseAsIs
+          - Rework
+          - Repair
+          - Scrap
+          - Return_To_Vendor
+          - Customer_Deviation_Request
+      mrb_justification:
+        type: string
+        nullable: true
+      mrb_authorized_by:
+        type: string
+        nullable: true
+      mrb_authorization_date:
+        type: date
+        nullable: true
+      customer_deviation_approved:
+        type: boolean
+        nullable: true
+      customer_deviation_number:
+        type: string
+        nullable: true
+      # Rework / re-inspection
+      rework_job_id:
+        type: uuid
+        nullable: true
+        description: "-> job.id (rework operation job)"
+      rework_description:
+        type: string
+        nullable: true
+      re_inspection_required:
+        type: boolean
+      re_inspection_qif_reference:
+        type: string
+        nullable: true
+        description: QIF file reference for re-inspection results
+      re_inspection_result:
+        type: enum
+        nullable: true
+        values: [Pass, Fail, Pending]
+      # Preventive action
+      root_cause:
+        type: string
+        nullable: true
+      corrective_action:
+        type: string
+        nullable: true
+      corrective_action_due:
+        type: date
+        nullable: true
+      corrective_action_verified:
+        type: boolean
+      status:
+        type: enum
+        values:
+          - Open
+          - Pending_MRB
+          - Pending_Customer
+          - Rework_In_Progress
+          - Closed
+          - Scrapped
+    relationships:
+      raised_on_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+      affects_part:
+        target: part
+        cardinality: many-to-one
+        description: "When subject_type = part (Decision 1.9 replaces item FK)"
+      affects_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: "When subject_type = assembly (Decision 1.9 replaces item FK)"
+      affects_serials:
+        target: serial_number
+        cardinality: one-to-many
+      affects_lot:
+        target: material_lot
+        cardinality: many-to-one
+        nullable: true
+      discovered_by_user:
+        target: user
+        cardinality: many-to-one
+        nullable: true
+      rework_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+
+    state_machine:
+      description: >
+        NCR lifecycle from discovery through MRB disposition and verification. This machine
+        models the production/traceability-oriented NCR workflow centered on MRB convening
+        and disposition authority. The ffm-quality-system implementation uses a parallel
+        7-state AS9100 process workflow (draft → containment → investigation → disposition →
+        corrective_action → verification → closed) for continuous improvement tracking;
+        that workflow is captured in the quality system's NC status model and runs alongside
+        the MRB disposition cycle represented here.
+        Terminal states: Closed (disposition complete and verified), Scrapped (condemned).
+      initial_state: Open
+      terminal_states: [Closed, Scrapped]
+      states:
+        Open:
+          description: NCR raised; nonconformance documented; containment actions being assessed; affected units quarantined
+        Pending_MRB:
+          description: Root cause investigation complete; MRB convened or awaiting convening; formal disposition not yet issued
+        Pending_Customer:
+          description: MRB determined a customer deviation request is required; awaiting customer approval or denial
+        Rework_In_Progress:
+          description: MRB disposition is Rework; rework operation created and work underway on affected units
+        Closed:
+          description: >
+            Disposition complete and verified. Use-As-Is (MRB authorized), Rework (re-inspection
+            passed), or Return-to-Vendor (supplier return shipped). Corrective action linked if
+            required. Terminal state.
+        Scrapped:
+          description: MRB disposition is Scrap; affected units condemned and removed from production count. Terminal state.
+      transitions:
+        - from: Open
+          to: Pending_MRB
+          trigger: Root cause investigation complete; MRB convening authorized
+          guard: nonconformance_description complete; quantity_nonconforming confirmed; discovery_source set
+        - from: Open
+          to: Scrapped
+          trigger: Immediate scrap decision authorized (clearly non-reworkable; QE or QM authority)
+          guard: Quality Manager sign-off on immediate scrap without full MRB — documented in notes
+        - from: Pending_MRB
+          to: Rework_In_Progress
+          trigger: MRB disposition issued as Rework; rework operation created
+          guard: mrb_disposition = Rework; mrb_authorization_date set; rework_job or rework operation record created
+        - from: Pending_MRB
+          to: Pending_Customer
+          trigger: MRB determines customer deviation request required; SDR initiated
+          guard: mrb_disposition = Customer_Deviation_Request; customer notification sent per QA-006
+        - from: Pending_MRB
+          to: Closed
+          trigger: MRB issues Use-As-Is or Return-to-Vendor disposition and closure is authorized
+          guard: mrb_disposition IN [UseAsIs, Return_To_Vendor]; mrb_authorized_by set; mrb_authorization_date set
+        - from: Pending_MRB
+          to: Scrapped
+          trigger: MRB disposition is Scrap
+          guard: mrb_disposition = Scrap; mrb_authorized_by set
+        - from: Pending_Customer
+          to: Closed
+          trigger: Customer approves deviation request
+          guard: customer_deviation_approved = true; customer approval reference documented
+        - from: Pending_Customer
+          to: Rework_In_Progress
+          trigger: Customer denies deviation; MRB fallback disposition is Rework
+        - from: Pending_Customer
+          to: Scrapped
+          trigger: Customer denies deviation; rework not feasible; MRB disposition is Scrap
+        - from: Rework_In_Progress
+          to: Closed
+          trigger: Rework complete; re-inspection passes; corrective_action_verified = true
+          guard: rework_job or rework operation status = Complete; re-inspection result = Pass
+        - from: Rework_In_Progress
+          to: Pending_MRB
+          trigger: Rework fails re-inspection; unit returned to MRB for re-disposition with new findings

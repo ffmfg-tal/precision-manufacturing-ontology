@@ -1,0 +1,204 @@
+# the manufacturer Digital Thread — PMI Event Entity
+# Version: 0.1.0
+#
+# Layer 1 (Standards): No Layer-1 standard defines a PMI event schema.
+#   STEP AP242 PMI: the acronym "PMI" in the context of STEP means
+#     Product and Manufacturing Information — annotations on 3D models.
+#     THIS IS DIFFERENT from the aerospace usage here.
+#     In this schema, PMI = Positive Material Identification — an analytical
+#     chemistry test performed at receiving inspection to verify alloy identity.
+#   MTConnect: does not define events for lab instruments (XRF, OES analyzers
+#     are not MTConnect devices). No standard schema exists.
+#   QIF 3.0: QIF defines inspection characteristics but focuses on dimensional
+#     geometry. PMI/alloy-chemistry is outside QIF scope.
+#   AS9100 Rev D §8.4.3: requires evidence of material conformance but defines
+#     no data structure for instrument records.
+#
+# Layer 2 (Manufacturer Extension): pmi_event is the raw instrument record produced when
+#   XRF, OES, or ICP analysis is performed at receiving inspection. The resulting
+#   pmi_event is the basis for a certification_document of cert_type PMI_Report.
+#
+#   the manufacturer practice: PMI is performed on ITAR-controlled alloys, all PH stainless
+#   and nickel superalloy bar stock, and whenever QA-004 (receiving inspection
+#   protocol) specifies alloy verification. The XRF gun reads chemistry in seconds;
+#   OES requires a sample and takes 15–30 minutes.
+#
+# Decision 1.7 note: pmi_event is a first-class entity because it carries raw
+#   instrument output (chemistry actuals, instrument calibration ref) that must
+#   be retained separately from the derived conformance document (pmi_fields in
+#   certification_document.yaml). The raw event record is the audit-defensible
+#   primary record; the cert is the conformance statement derived from it.
+#
+# Narrative specification: extensions/material-certs.md (pmi_verified field
+#   on material_lot and the traceability chain discussion)
+# Cluster sibling schemas: schemas/material.yaml (material_lot.pmi_verified),
+#                          schemas/certification_document.yaml (cert_type PMI_Report)
+# Relationship graph:
+#   material_lot → pmi_event via verified_by (one-to-one in graph;
+#   updated here to one-to-many since a lot can have multiple PMI events
+#   if multiple pieces from the lot are tested)
+
+---
+
+entities:
+
+  # ============================================================
+  # PMI_EVENT
+  #
+  # A single Positive Material Identification test run on a material lot
+  # or part. Records instrument type, operator, timestamp, raw chemistry
+  # results, and pass/fail disposition against the spec limits.
+  #
+  # NOTE: In STEP AP242, "PMI" means Product and Manufacturing Information
+  # (model annotations). That meaning does NOT apply here. This entity's
+  # PMI = Positive Material Identification, the analytical chemistry test.
+  # ============================================================
+  pmi_event:
+    description: >
+      A single PMI (Positive Material Identification) test event — an
+      analytical chemistry measurement performed on a material lot or part
+      to verify alloy identity. Raw instrument record; the conformance
+      interpretation is expressed in a certification_document of cert_type
+      PMI_Report linked from this entity.
+      NOT related to STEP AP242 "PMI" (Product and Manufacturing Information).
+
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 — minted when the PMI test is initiated
+
+      material_lot_id:
+        type: uuid
+        required: true
+        description: FK → material_lot.id (the lot being tested)
+
+      # --- Test method ---
+      technique:
+        type: enum
+        required: true
+        values:
+          - XRF    # X-ray Fluorescence — handheld gun, non-destructive, fast
+          - OES    # Optical Emission Spectroscopy — sparks sample, slightly destructive, more precise
+          - ICP    # Inductively Coupled Plasma — dissolved sample, highest accuracy, destructive
+        description: Analytical technique used for material identification
+
+      # --- Instrument ---
+      instrument_id:
+        type: string
+        required: false
+        description: Serial number or asset tag of the instrument used
+
+      instrument_model:
+        type: string
+        required: false
+        description: Instrument make and model (e.g., "Olympus Vanta M Series XRF")
+
+      instrument_calibration_date:
+        type: date
+        required: false
+        description: Date of most recent instrument calibration
+
+      calibration_record_id:
+        type: uuid
+        required: false
+        description: FK → calibration_record.id (if tracked as a first-class record)
+
+      # --- Personnel / traceability ---
+      operator_id:
+        type: uuid
+        required: false
+        description: FK → user.id (operator who ran the test)
+
+      test_timestamp:
+        type: datetime
+        required: true
+        description: ISO 8601 datetime when the test was run
+
+      test_location:
+        type: string
+        required: false
+        description: Where test was performed (e.g., "Receiving dock", "CMM room")
+
+      # --- Sample identification ---
+      piece_id:
+        type: string
+        required: false
+        description: >
+          Which piece from the lot was tested (e.g., serial number, bar tag,
+          piece position in bundle). One lot may have multiple PMI events
+          if multiple pieces are tested.
+
+      test_location_on_piece:
+        type: string
+        required: false
+        description: Where on the piece the test was applied (e.g., "End face", "OD surface")
+
+      # --- Results ---
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Inconclusive, Requires_OES_Confirmation]
+        description: >
+          Disposition based on measured chemistry vs. spec limits.
+          Requires_OES_Confirmation: XRF result is borderline; OES needed.
+
+      alloy_identified:
+        type: string
+        required: false
+        description: >
+          Alloy designation returned by the instrument or determined by the operator.
+          E.g., "17-4 PH", "Inconel 718", "7075 Aluminum".
+
+      chemistry_actual:
+        type: object[]
+        required: false
+        description: Elemental percentages measured — the raw instrument output
+        item_schema:
+          element:
+            type: string
+            required: true
+            examples: ["Fe", "Ni", "Cr", "Mo", "Cu", "Al", "Ti", "C", "Mn", "Si"]
+          percent:
+            type: decimal
+            required: true
+          uncertainty:
+            type: decimal
+            required: false
+            description: Measurement uncertainty (1-sigma) if reported by instrument
+
+      chemistry_limits:
+        type: object[]
+        required: false
+        description: Spec min/max limits for the expected alloy (for conformance comparison)
+        item_schema:
+          element: { type: string, required: true }
+          min_pct: { type: decimal, required: false }
+          max_pct: { type: decimal, required: false }
+          source_spec: { type: string, required: false, description: "Spec defining this limit" }
+
+      # --- Disposition ---
+      disposition:
+        type: string
+        required: false
+        description: >
+          Narrative disposition of the lot based on this PMI result.
+          E.g., "Lot released to inventory — alloy confirmed", or
+          "Lot quarantined pending OES confirmation, NCR opened."
+
+      ncr_id:
+        type: uuid
+        required: false
+        description: FK → nonconformance_report.id if Fail disposition triggered an NCR
+
+      # --- Cert linkage ---
+      pmi_cert_id:
+        type: uuid
+        required: false
+        description: FK → certification_document.id (cert_type PMI_Report) derived from this event
+
+    relationships:
+      tests_lot:
+        target: material_lot
+        cardinality: many-to-one
+        description: The material lot this PMI event tests (one lot may have multiple PMI events)

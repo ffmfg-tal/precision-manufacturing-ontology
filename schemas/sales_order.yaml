@@ -1,0 +1,188 @@
+# schemas/sales_order.yaml
+#
+# Layer-1 coverage:
+#   X12 EDI: customer_purchase_order (schemas/customer_purchase_order.yaml) is the inbound
+#   commercial document. The sales_order is the manufacturer-internal acceptance record derived from
+#   that inbound PO. No X12 transaction maps directly to a sales order — the 855 (PO Ack)
+#   is generated from the sales order, not stored as one. The sales_order is a Layer-2 entity.
+#
+# Architectural decisions:
+#   sales_order couples a customer_purchase_order to one or more jobs. The CPO is the
+#   customer's commercial document; the sales_order is the manufacturer's acceptance of that commitment.
+#   A single CPO can generate multiple sales_orders (e.g., split delivery releases) or a
+#   single sales_order can cover multiple line items that each spawn a job.
+#
+#   Line-item model: each line_item has a subject_id + subject_type (part | assembly) per
+#   Decision 1.9, plus quantity, due_date, and unit_price. The job(s) produced for the
+#   line item FK back to sales_order_id on job.
+#
+# Entities: sales_order
+
+entities:
+
+  sales_order:
+    description: >
+      the manufacturer's internal acceptance record that represents the commitment to fulfill a customer
+      purchase order. Derived from customer_purchase_order at the time of acknowledgment.
+      The sales_order is the source of truth for line-item due dates and quantities from
+      the manufacturer's perspective; it drives job creation and tracks delivery progress.
+      One customer_purchase_order may generate one or more sales_orders (split releases).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the sales order is booked
+      sales_order_number:
+        type: string
+        required: true
+        description: shop internal sales order number
+        examples: ["SO-2025-0198", "2025-SO-0198"]
+      customer_id:
+        type: uuid
+        required: true
+        description: FK → customer.id
+      customer_purchase_order_id:
+        type: uuid
+        required: true
+        description: FK → customer_purchase_order.id — the originating customer PO
+      customer_po_number:
+        type: string
+        required: false
+        description: Customer's PO number (human-readable cross-reference; also on customer_purchase_order)
+      status:
+        type: enum
+        required: true
+        values: [Draft, Booked, In_Production, Partially_Shipped, Fully_Shipped, Invoiced, Closed, Cancelled]
+      order_date:
+        type: date
+        required: false
+        description: Date the sales order was created / customer PO was acknowledged
+      required_ship_date:
+        type: date
+        required: false
+        description: Customer's requested ship date for the full order
+      acknowledged_ship_date:
+        type: date
+        required: false
+        description: the manufacturer's committed ship date as communicated in the X12 855 acknowledgment
+      line_items:
+        type: array
+        required: true
+        description: One entry per line item / deliverable
+        items:
+          line_number:
+            type: integer
+          subject_id:
+            type: uuid
+            description: FK → part.id or assembly.id per subject_type (Decision 1.9)
+          subject_type:
+            type: enum
+            values: [part, assembly]
+          quantity:
+            type: integer
+          due_date:
+            type: date
+            required: false
+          unit_price:
+            type: number
+            required: false
+          currency:
+            type: string
+            description: ISO 4217
+            examples: ["USD"]
+          job_id:
+            type: uuid
+            required: false
+            description: FK → job.id — the job created to fulfill this line item (null until job is created)
+      quality_flowdown_plan_id:
+        type: uuid
+        required: false
+        description: FK → quality_flowdown_plan.id — quality obligations inherited from the customer PO
+      itar_controlled:
+        type: boolean
+        required: true
+        description: True if any line item involves ITAR-controlled articles; drives data handling rules
+      total_value:
+        type: number
+        required: false
+        description: Total order value (sum of line_item quantities × unit_prices)
+      currency:
+        type: string
+        required: false
+        description: ISO 4217 for total_value
+        examples: ["USD"]
+      notes:
+        type: string
+        required: false
+
+    state_machine:
+      description: >
+        Sales order lifecycle from booking through invoicing. Drives job creation
+        and shipment milestones. Terminal states are Closed and Cancelled.
+      initial_state: Draft
+      terminal_states: [Closed, Cancelled]
+      states:
+        Draft:
+          description: Sales order created but not yet accepted; awaiting ITAR screening and contract review
+        Booked:
+          description: Order accepted; acknowledgment (X12 855) sent to customer; jobs not yet created
+        In_Production:
+          description: At least one job has been released to the shop floor
+        Partially_Shipped:
+          description: At least one line item has been shipped; at least one remains open
+        Fully_Shipped:
+          description: All line items shipped; awaiting invoice transmission
+        Invoiced:
+          description: X12 810 invoice transmitted to customer; awaiting payment
+        Closed:
+          description: Payment received and applied; records archived
+        Cancelled:
+          description: Order cancelled before full shipment; open jobs stopped
+      transitions:
+        - from: Draft
+          to: Booked
+          trigger: ITAR screening passed, contract review complete, X12 855 acknowledgment sent to customer
+        - from: Draft
+          to: Cancelled
+          trigger: Order declined or customer withdraws PO before acceptance
+        - from: Booked
+          to: In_Production
+          trigger: First job released to production
+        - from: Booked
+          to: Cancelled
+          trigger: Order cancelled before any jobs are created
+        - from: In_Production
+          to: Partially_Shipped
+          trigger: First line-item shipment dispatched
+        - from: In_Production
+          to: Fully_Shipped
+          trigger: All line items shipped in a single shipment
+        - from: In_Production
+          to: Cancelled
+          trigger: Order cancelled; open jobs placed on hold or cancelled
+        - from: Partially_Shipped
+          to: Fully_Shipped
+          trigger: Remaining line items shipped
+        - from: Partially_Shipped
+          to: Cancelled
+          trigger: Remaining quantities cancelled by customer
+        - from: Fully_Shipped
+          to: Invoiced
+          trigger: X12 810 invoice transmitted
+        - from: Invoiced
+          to: Closed
+          trigger: Payment received and reconciled
+
+    relationships:
+      placed_by_customer:
+        target: customer
+        cardinality: many-to-one
+      originates_from_cpo:
+        target: customer_purchase_order
+        cardinality: many-to-one
+      produces_jobs:
+        target: job
+        cardinality: one-to-many
+      inherits_flowdown:
+        target: quality_flowdown_plan
+        cardinality: many-to-one

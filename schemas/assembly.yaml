@@ -1,0 +1,407 @@
+# schemas/assembly.yaml
+#
+# Layer-1 coverage: PARTIAL.
+#   STEP AP242 covers assembly structure (product_definition_relationship) and design BOM.
+#   QIF covers inspection characteristics including key characteristics.
+#   No Layer-1 standard covers torque specification, torque reading records, kit tracking,
+#   or witness inspection sign-off as production execution records — these are manufacturer-layer additions.
+#
+# Prose source: extensions/assembly-operations.md
+#
+# Architectural decisions:
+#   torque_specification is a TEMPLATE — it defines the target torque value and conditions
+#   for a fastener position in a design or routing. torque_readings_record is the EXECUTION
+#   record produced when an assembly_operation runs against a specific serial number.
+#   torque_sequence is the fastener-tightening ORDER pattern (star, cross, sequential) that
+#   accompanies the torque_specification on the same operation.
+#
+#   kit_record uses assembly_serial_id (not a polymorphic FK) because kits are assembled into
+#   a specific serialized assembly unit. The kit_item[] array is flat JSONB — not a separate
+#   entity — because kit contents are immutable once the kit is checked and the assembly
+#   operation begins.
+#
+#   witness_inspection is a SIGN-OFF record tied to assembly_operation, not a separate
+#   inspection workflow. It captures who witnessed, when, and the result. It is distinct from
+#   inspection_event (schemas/inspection.yaml) which bundles multi-instrument inspection
+#   sessions.
+#
+#   Standards references:
+#     AS5272: Torque values for fastener installation (aerospace standard)
+#     NASM 33540: Safety wire/cotter pin safetying standard (referenced by assembly operations
+#       that require safetying after torquing — process_specification_id in assembly_operation
+#       points here)
+#
+# Entities: torque_specification, torque_sequence, torque_readings_record,
+#           witness_inspection, kit_record
+
+entities:
+
+  torque_specification:
+    description: >
+      Template defining the required torque value, tolerance, and installation conditions
+      for a fastener position within an assembly design or routing operation. Referenced by
+      assembly_routing (assembly-level default) and assembly_operation (step-level override).
+      Not an execution record — torque_readings_record captures actual measured values per
+      serial unit. Typically derived from AS5272, the assembly drawing, or an OEM-supplied
+      installation procedure.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the torque specification is defined in the production system
+      name:
+        type: string
+        required: true
+        description: Human-readable identifier for this torque spec
+        examples: ["#10-32 Shear Bolt H1025 Dry", "M6 SHCS Per AS5272 Lubed", "AN4 Bolt Assembly"]
+      fastener_identifier:
+        type: string
+        required: false
+        description: Fastener part number, NAS/AN/MS designation, or NASM designation
+        examples: ["NAS1351-3-10", "MS21250-06014", "AN4-6A"]
+      fastener_size:
+        type: string
+        required: false
+        description: Fastener nominal size designation
+        examples: ["#10-32", "M6x1.0", "1/4-28"]
+      target_torque:
+        type: number
+        required: true
+        description: Nominal torque value
+      tolerance_plus:
+        type: number
+        required: false
+        description: Positive tolerance (e.g., +5 in-lb); if null, assume symmetric with tolerance_minus
+      tolerance_minus:
+        type: number
+        required: false
+        description: Negative tolerance (e.g., -3 in-lb)
+      torque_unit:
+        type: enum
+        required: true
+        values: [in_lb, ft_lb, Nm, cNm]
+        description: Unit of torque measurement
+      lube_condition:
+        type: enum
+        required: true
+        values: [Dry, Lubricated, Anti_Seize, Loctite, Specified_By_Drawing]
+        description: Installation lubrication condition; affects actual torque-to-preload relationship
+      lube_specification:
+        type: string
+        required: false
+        description: Specific lubricant or compound required (e.g., "Molykote G-1000", "Loctite 243")
+      reference_spec_id:
+        type: uuid
+        required: false
+        description: FK → process_specification.id — governing torque standard (e.g., AS5272)
+      reference_spec_note:
+        type: string
+        required: false
+        description: Drawing note or spec paragraph callout (e.g., "Per AS5272, Table 1, Row 14")
+      safetying_required:
+        type: boolean
+        required: true
+        description: Whether safety wire or cotter pin is required per NASM 33540 after torquing
+      safetying_method:
+        type: enum
+        required: false
+        values: [Safety_Wire, Cotter_Pin, Palnut, Prevailing_Torque_Nut, None]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      referenced_by_routing:
+        target: assembly_routing
+        cardinality: one-to-many
+        description: Assembly routings that use this spec as their default torque requirement
+      referenced_by_operation:
+        target: assembly_operation
+        cardinality: one-to-many
+        description: Assembly operations that override the routing default with this spec
+      governs_readings:
+        target: torque_readings_record
+        cardinality: one-to-many
+        description: Execution records produced against this specification
+      references_standard:
+        target: process_specification
+        cardinality: many-to-one
+
+  torque_sequence:
+    description: >
+      Defines the fastener tightening ORDER pattern for a multi-fastener joint. Specifies
+      the spatial pattern (star, cross, sequential, clockwise) and whether to use multiple
+      passes at step-percentage increments of final torque. A torque_specification defines
+      what torque to apply; a torque_sequence defines in what order and how many passes.
+      Both are referenced by assembly_operation independently — a single-fastener operation
+      needs a spec but no sequence; a multi-pass bolted joint may reference both.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      name:
+        type: string
+        required: true
+        description: Human-readable identifier
+        examples: ["6-Bolt Flange Star 3-Pass", "4-Bolt Cross Pattern Single Pass", "Sequential 8-Bolt"]
+      fastener_count:
+        type: integer
+        required: true
+        description: Number of fasteners in the joint pattern
+      pattern_type:
+        type: enum
+        required: true
+        values: [Star, Cross, Sequential, Clockwise, Counter_Clockwise, Custom]
+        description: Spatial tightening pattern
+      pass_count:
+        type: integer
+        required: true
+        description: Number of tightening passes to final torque (1 = single pass to full torque)
+      step_percentages:
+        type: number[]
+        required: false
+        description: >
+          Torque percentage for each pass when pass_count > 1. Array length must equal pass_count.
+          Final element should be 100 (full torque).
+        examples: [[50, 100], [30, 70, 100]]
+      custom_sequence_description:
+        type: string
+        required: false
+        description: Required when pattern_type = Custom; describes the tightening order
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      referenced_by_operation:
+        target: assembly_operation
+        cardinality: one-to-many
+
+  torque_readings_record:
+    description: >
+      Execution record capturing actual torque readings applied to each fastener during an
+      assembly operation on a specific serial unit. Created per assembly_operation execution —
+      one record per assembly sign-off event. Immutable once created (production evidence).
+      The readings[] array captures per-fastener measured values; all_within_spec is the
+      summary flag used by downstream cert package assembly.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the torque record is saved in the production system
+      assembly_operation_id:
+        type: uuid
+        required: true
+        description: FK → assembly_operation.id — the operation this record was produced by
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id — the production job
+      assembly_serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — the specific assembly unit torqued
+      torque_specification_id:
+        type: uuid
+        required: true
+        description: FK → torque_specification.id — the spec against which readings are evaluated
+      torque_sequence_id:
+        type: uuid
+        required: false
+        description: FK → torque_sequence.id — the sequence followed if a multi-pass pattern was used
+      operator_id:
+        type: uuid
+        required: true
+        description: FK → user.id — the operator who performed the torquing
+      torque_tool_id:
+        type: uuid
+        required: false
+        description: FK → tool_gauge.id — the calibrated torque wrench used
+      recorded_at:
+        type: datetime
+        required: true
+        description: Timestamp when the record was saved
+      readings:
+        type: object[]
+        required: true
+        description: >
+          Array of per-fastener reading objects. Each object contains:
+            fastener_position: integer (1-indexed per the torque_sequence pattern)
+            pass_number: integer (1 for single-pass; 1..N for multi-pass)
+            applied_torque: number
+            unit: enum [in_lb, ft_lb, Nm, cNm]
+            within_spec: boolean
+        examples:
+          - - fastener_position: 1
+              pass_number: 1
+              applied_torque: 48
+              unit: in_lb
+              within_spec: true
+            - fastener_position: 2
+              pass_number: 1
+              applied_torque: 46
+              unit: in_lb
+              within_spec: true
+      all_within_spec:
+        type: boolean
+        required: true
+        description: True if all fastener readings on all passes are within the torque_specification tolerance
+      safetying_completed:
+        type: boolean
+        required: false
+        description: >
+          Whether safety wire or cotter pin installation was completed per NASM 33540,
+          if torque_specification.safetying_required = true
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: assembly_operation
+        cardinality: many-to-one
+      for_job:
+        target: job
+        cardinality: many-to-one
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+      against_spec:
+        target: torque_specification
+        cardinality: many-to-one
+      used_tool:
+        target: tool_gauge
+        cardinality: many-to-one
+
+  witness_inspection:
+    description: >
+      Sign-off record capturing that a qualified witness (QE or Inspector role) observed and
+      accepted an assembly operation on a specific serial unit. Required when the assembly_operation
+      has requires_witness = true — typically for first-off, safety-critical joints, or
+      customer-directed hold points. This is an operational sign-off record, not a full
+      inspection event: it records who witnessed, result, and method — not measurement data.
+      Measurement data is captured in torque_readings_record (for torque) or inspection_event
+      (schemas/inspection.yaml) for dimensional checks.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      assembly_operation_id:
+        type: uuid
+        required: true
+        description: FK → assembly_operation.id
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      assembly_serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — serial unit witnessed, if serialized
+      inspector_id:
+        type: uuid
+        required: true
+        description: FK → user.id — the witness; must have inspector or quality_engineer role
+      witnessed_at:
+        type: datetime
+        required: true
+        description: Timestamp of witness sign-off
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Conditional]
+      signoff_method:
+        type: enum
+        required: true
+        values: [Digital_Signature, Initials_On_Traveler, QR_Scan, Verbal_Logged]
+        description: Method used to record the witness sign-off
+      conditions:
+        type: string
+        required: false
+        description: Required when result = Conditional; describes what must be completed before proceeding
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: assembly_operation
+        cardinality: many-to-one
+      for_job:
+        target: job
+        cardinality: many-to-one
+      witnessed_by:
+        target: user
+        cardinality: many-to-one
+
+  kit_record:
+    description: >
+      Verification record confirming that all required parts, fasteners, and consumables for
+      an assembly operation have been pulled, verified, and are present before work begins.
+      Created per assembly_operation execution instance (one per assembled unit). The
+      kit_contents array is the confirmed-present manifest; complete = true gates the
+      operation from starting in the production system. Immutable once the assembly operation begins —
+      any add/substitute after start generates a new kit_record revision.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      assembly_operation_id:
+        type: uuid
+        required: true
+        description: FK → assembly_operation.id — the operation this kit was pulled for
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      assembly_serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — the assembly unit this kit was staged for
+      kitted_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — operator who pulled and verified the kit
+      kitted_at:
+        type: datetime
+        required: false
+        description: Timestamp when the kit was verified complete
+      kit_contents:
+        type: object[]
+        required: true
+        description: >
+          Array of kit item objects. Each object contains:
+            item_id: uuid (FK → item.id or material.id)
+            item_type: enum [part, fastener, consumable, material]
+            item_number: string (part number or material designation)
+            quantity_required: integer
+            quantity_staged: integer
+            lot_number: string (optional — for traceable fasteners or materials)
+            serial_numbers: string[] (optional — for serialized components)
+            verified: boolean
+      complete:
+        type: boolean
+        required: true
+        description: >
+          True when all kit_contents items have verified = true and quantity_staged >=
+          quantity_required. This flag gates the assembly_operation from starting.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: assembly_operation
+        cardinality: many-to-one
+      for_job:
+        target: job
+        cardinality: many-to-one
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+      kitted_by:
+        target: user
+        cardinality: many-to-one

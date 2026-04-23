@@ -1,0 +1,85 @@
+# schemas/data_classification.yaml
+#
+# Layer-1 coverage: NONE.
+#   No manufacturing standard defines a data classification entity. ITAR (22 CFR 120-130)
+#   establishes the regulatory requirement; CMMC (NIST SP 800-171) establishes the
+#   cybersecurity controls. This entity is the manufacturer's Layer-2 representation of the
+#   classification framework described in extensions/ip-boundary.md.
+#
+# Architectural decisions:
+#   data_classification is a reference entity: it defines the classification rules for
+#   a given data element type. Individual entity instances (material_lots, job records,
+#   drawings) reference a data_classification to determine their handling rules.
+#
+#   The classification_level enum maps to the Data Classification Matrix in
+#   extensions/ip-boundary.md §1 (Customer-Owned, Manufacturer-Owned, Quality Records,
+#   Shop-Floor Transactional, Archive-Only).
+#
+#   access_roles[] cross-references the user.roles[] enum — lists which roles
+#   are permitted to read or write data at this classification level.
+#
+#   This entity covers the structural classification framework. Actual enforcement
+#   of access rules is at the Layer-3 application (production system) and Layer-4
+#   interface (Claude MCP) levels.
+#
+# Entities: data_classification
+
+entities:
+
+  data_classification:
+    description: >
+      A classification rule record that defines handling requirements for a category of
+      data. Implements the Data Classification Matrix from extensions/ip-boundary.md.
+      Entity instances (jobs, drawings, cert packages, NC programs) reference a
+      data_classification to inherit their storage, transmission, and access rules.
+      Provides a machine-readable governance layer over all eight operational domains.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when a classification type is defined
+      classification_level:
+        type: enum
+        required: true
+        values: [Customer_Owned_IP, FFM_Owned_IP, Quality_Record, Shop_Floor_Transactional, Archive_Only]
+        description: >
+          Customer_Owned_IP: drawings, models, NC programs, customer specifications — strict
+          storage and transmission controls. FFM_Owned_IP: routings, cycle times, cost structures,
+          tooling — confidential; never transmitted. Quality_Record: cert packages, FAI forms,
+          NCRs, inspection data — transmitted to customer per contract; retained per AS9100.
+          Shop_Floor_Transactional: job status, work order progress, machine telemetry — internal
+          operational data; low sensitivity. Archive_Only: closed job records beyond active
+          retention window — read-only access, reduced storage tier.
+      applies_to_entity_types:
+        type: string[]
+        required: false
+        description: Entity type names this classification applies to (e.g., ["job", "certification_document", "part"])
+      itar_controlled:
+        type: boolean
+        required: true
+        description: True if data at this classification level may be ITAR-controlled; drives mandatory citizenship_status check on accessing users
+      storage_requirement:
+        type: string
+        required: false
+        description: Human-readable storage rule (e.g., "On-premises or ITAR-compliant cloud only", "Any manufacturer-controlled system")
+      transmission_rule:
+        type: string
+        required: false
+        description: Human-readable transmission rule (e.g., "Transmit to customer only in cert package", "Never transmit outside the manufacturer")
+      retention_years:
+        type: integer
+        required: false
+        description: Minimum record retention period in years per AS9100 §7.5.3 and contractual requirements
+      access_roles:
+        type: enum[]
+        required: false
+        values: [quality_engineer, machinist, inspector, buyer, shipping, receiving, programmer, operator, supervisor, admin]
+        description: User roles permitted to access data at this classification level; empty means all authenticated users
+      requires_mfa:
+        type: boolean
+        required: false
+        description: True if CMMC or ITAR requirements mandate multi-factor authentication for access to this data class
+      notes:
+        type: string
+        required: false
+        description: Additional handling guidance not captured in structured fields

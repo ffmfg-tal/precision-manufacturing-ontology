@@ -1,0 +1,91 @@
+# schemas/user.yaml
+#
+# Layer-1 coverage: NONE.
+#   No manufacturing standard defines a shop-floor user entity. MTConnect references an
+#   OperatorId as a free string; QIF has no user model. The user entity is a Layer-2
+#   addition to support traceability, ITAR access control, and quality record authorship.
+#
+# Architectural decisions:
+#   citizenship_status (US_Person | Foreign_Person) is a compliance field, not a
+#   general-purpose HR field. It drives ITAR access rules: foreign persons require
+#   an ITAR export license or applicable exemption before accessing controlled technical
+#   data. the manufacturer's ITAR program requires this flag on any user with system access.
+#
+#   Roles are additive (array, not single-value). An operator who also does inspection
+#   holds both roles. The roles list drives application-layer permissions.
+#
+#   training_records[] tracks completion of required training (AS9100 awareness, ITAR
+#   awareness, quality procedures, machine-specific certifications). the manufacturer's QMS requires
+#   documented evidence of training for quality-record signatories.
+#
+# Entities: user
+
+entities:
+
+  user:
+    description: >
+      A person who interacts with the manufacturer's digital thread systems: operators, inspectors,
+      quality engineers, buyers, shipping/receiving staff, programmers, and supervisors.
+      Users are referenced in work_orders (assigned_operator_id), quality records
+      (inspector, FAI signatory), nonconformance reports (disposition authority),
+      and receiving events. The ITAR citizenship_status field drives access control
+      for controlled technical data.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the user is created in the production system
+      full_name:
+        type: string
+        required: true
+      email:
+        type: string
+        required: false
+        description: Work email address; used as login identifier in the production system
+      employee_id:
+        type: string
+        required: false
+        description: shop internal employee ID number
+      roles:
+        type: enum[]
+        required: true
+        values: [quality_engineer, machinist, inspector, buyer, shipping, receiving, programmer, operator, supervisor, admin]
+        description: One or more roles; additive — a user may hold multiple roles
+      citizenship_status:
+        type: enum
+        required: true
+        values: [US_Person, Foreign_Person]
+        description: >
+          US_Person: US citizen, US national, or lawful permanent resident — may access
+          ITAR-controlled technical data. Foreign_Person: requires ITAR export license or
+          applicable exemption before accessing controlled data. See extensions/ip-boundary.md.
+      training_records:
+        type: array
+        required: false
+        description: Documented training completions required for quality record authorship and regulatory compliance
+        items:
+          training_id:
+            type: string
+            description: Training program identifier (e.g., "ITAR-AWARENESS-2025", "AS9100-QMS-2025", "MILL-OP-CERT")
+          training_title:
+            type: string
+          completion_date:
+            type: date
+          expiration_date:
+            type: date
+            required: false
+            description: Null for one-time training; populated for recurring training (annual recertification)
+      active:
+        type: boolean
+        required: true
+        description: False for terminated or inactive users; inactive users cannot be assigned to new work orders
+
+    relationships:
+      assigned_work_orders:
+        target: work_order
+        cardinality: one-to-many
+        description: Work orders assigned to this operator
+      authored_ncrs:
+        target: nonconformance_report
+        cardinality: one-to-many
+        description: Nonconformance reports this user originated

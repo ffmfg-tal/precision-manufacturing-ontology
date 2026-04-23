@@ -1,0 +1,768 @@
+# the manufacturer Digital Thread — Material Entities
+# Version: 0.1.0
+#
+# Layer 1 (Standards): STEP AP242 (ISO 10303-242) carries material callouts as PMI text
+#   in the drawing annotation — e.g., "7075-T7351 ALUMINUM ALLOY PER AMS 4078".
+#   STEP has no schema for the AMS specification as a queryable entity, no DFARS field,
+#   and no link to a physical material lot.
+#
+# Layer 2 (Manufacturer Extension): This schema defines three entities that fill the manufacturer-layer gap:
+#   - material_specification: AMS/ASTM spec as a first-class queryable object
+#   - material_lot: the physical lot with heat number, melt country, DFARS compliance, MTR link
+#   - (certification_document: see extensions/material-certs.md for the full cert chain schema)
+#
+# Narrative specification: extensions/material-certs.md
+# Prior art / gap analysis: reference/prior-art.md (STEP AP242 section)
+#
+# This schema uses a layered-disclosure approach for the material entity itself:
+# from a simple label (Layer 0) to fully decomposed queryable fields (Layer 3).
+
+---
+
+entities:
+
+  # ============================================================
+  # MATERIAL
+  # A specific material as it would be ordered or consumed.
+  # Combines alloy identity + spec + form + dimensions + condition.
+  #
+  # Standards relationship: STEP AP242 PMI carries the drawing callout as
+  # unstructured text (e.g., "7075-T7351 ALUMINUM ALLOY PER AMS 4078").
+  # This entity is the structured, queryable decomposition of that callout.
+  # ============================================================
+  material:
+    description: >
+      A substance from which parts are manufactured, identified by
+      alloy, specification, form, and condition. This is the "as-ordered"
+      or "as-consumed" representation. Corresponds to the material callout
+      in STEP AP242 PMI text, decomposed into queryable fields.
+
+    layer_0_template: "{alloy_common_name} {form_label}"
+    layer_1_template: "{alloy_common_name}, {material_spec}, {form_label}, {dimension_summary}"
+    layer_2_template: "{dimension_string} {alloy_common_name} PER {material_spec} {spec_type_string} {condition_string} {heat_treatment_string}"
+
+    attributes:
+      # --- Identity ---
+      id:
+        type: uuid
+        required: true
+        description: System-generated unique identifier
+
+      # --- Alloy Identity ---
+      alloy_common_name:
+        type: string
+        required: true
+        description: Industry common name
+        examples: ["15-5 PH", "718", "Ti 6-4", "7075", "4340"]
+
+      alloy_family:
+        type: enum
+        required: true
+        description: >
+          AMS commodity group family. Maps to AMS spec number ranges:
+          Aluminum Alloy (AMS 4000–4199 wrought, 4218–4490 castings/forgings),
+          Magnesium Alloy (AMS 4360–4399), Titanium Alloy (AMS 4900–4999),
+          Precipitation Hardening Stainless (AMS 5600–5699),
+          Austenitic Stainless / Martensitic Stainless (AMS 5500–5599),
+          Nickel Alloy (AMS 5540–5812 nickel and iron-nickel alloys),
+          Cobalt Alloy (AMS 5380–5812 cobalt alloys),
+          Alloy Steel (AMS 6200–6599), Carbon Steel (AMS 5010–5030),
+          Tool Steel (AMS 6800+), Copper Alloy (AMS 4700–4799 — covers brass and bronze),
+          Beryllium Copper (AMS 4725; distinct hazmat handling).
+          alloy_common_name carries the specific grade within each family.
+        values:
+          - Aluminum Alloy
+          - Magnesium Alloy
+          - Titanium Alloy
+          - Precipitation Hardening Stainless
+          - Austenitic Stainless
+          - Martensitic Stainless
+          - Nickel Alloy
+          - Cobalt Alloy
+          - Alloy Steel
+          - Carbon Steel
+          - Tool Steel
+          - Copper Alloy
+          - Beryllium Copper
+          - Composite
+          - Polymer
+
+      uns_number:
+        type: string
+        required: false
+        pattern: "^[A-Z]\\d{5}$"
+        description: Unified Numbering System code
+        examples: ["S15500", "N07718", "R56400"]
+
+      # --- Specification ---
+      material_spec:
+        type: string
+        required: true
+        description: Primary governing specification number
+        examples: ["AMS 5659", "ASTM A564", "MIL-S-83165"]
+
+      spec_body:
+        type: enum
+        required: true
+        values: [SAE, ASTM, MIL, ASME, NASM, OEM, Internal]
+        description: Standards-issuing body. SAE publishes AMS specs. NASM (National Aerospace Standard) added per Decision 1.7.
+
+      spec_revision:
+        type: string
+        required: false
+        description: Current revision of the spec being referenced
+
+      spec_type:
+        type: string
+        required: false
+        description: Type designator within the specification
+        examples: ["1", "2", "630", "XM-12"]
+
+      spec_class:
+        type: string
+        required: false
+        description: Class designator within the specification
+
+      spec_grade:
+        type: string
+        required: false
+        description: Grade designator within the specification
+
+      condition:
+        type: string
+        required: false
+        description: Delivery condition or temper
+        examples: ["A", "H900", "T6", "T651", "Annealed", "Solution Treated"]
+
+      # --- Form and Dimensions ---
+      form:
+        type: enum
+        required: true
+        values: [Bar, Billet, Plate, Sheet, Forging, Casting, Tube, Wire, Extrusion, Powder]
+        description: >
+          Product form as received. Billet is distinct from Bar: billets are oversized
+          semi-finished stock (common for titanium and aluminum) intended for further
+          forging or machining rather than direct use. AMS distinguishes bar (AMS 4928
+          Ti-6Al-4V bar) from billet (AMS 4928 can cover both; other specs are form-specific).
+
+      shape:
+        type: enum
+        required: false
+        description: Cross-section shape (primarily for bar stock)
+        values: [Round, Flat, Hex, Square, Rectangular, Angle, Channel, Beam]
+
+      dimensions:
+        type: object
+        required: false
+        description: >
+          Shape-dependent dimension set. Fields vary by form/shape combination.
+          All dimension values are objects with 'value', 'uom', and optional 'tolerance'.
+        schemas_by_form:
+          bar_round:
+            diameter: { type: dimension, required: true }
+            length: { type: dimension, required: false }
+          bar_flat:
+            thickness: { type: dimension, required: true }
+            width: { type: dimension, required: true }
+            length: { type: dimension, required: false }
+          bar_hex:
+            across_flats: { type: dimension, required: true }
+            length: { type: dimension, required: false }
+          bar_square:
+            side: { type: dimension, required: true }
+            length: { type: dimension, required: false }
+          plate:
+            thickness: { type: dimension, required: true }
+            width: { type: dimension, required: false }
+            length: { type: dimension, required: false }
+          sheet:
+            thickness: { type: dimension, required: true }
+            width: { type: dimension, required: false }
+            length: { type: dimension, required: false }
+          tube:
+            outer_diameter: { type: dimension, required: true }
+            wall_thickness: { type: dimension, required: true }
+            length: { type: dimension, required: false }
+          forging:
+            reference_drawing: { type: string, required: false }
+            weight: { type: dimension, required: false }
+          casting:
+            reference_drawing: { type: string, required: false }
+            weight: { type: dimension, required: false }
+
+      finish:
+        type: string
+        required: false
+        description: Surface finish condition as delivered
+        examples: ["Cold Finished", "Hot Rolled", "Ground", "Turned"]
+
+      # --- Compliance ---
+      dfars_required:
+        type: boolean
+        required: false
+        default: false
+        description: DFARS 252.225-7009 specialty metals restriction applies
+
+      # --- Heat Treatment ---
+      # Required post-machining heat treatment callout from the drawing.
+      # The spec_primary field references a process_specification entity
+      # (defined in extensions/outside-processing.md) by spec number string;
+      # full machine-readable process spec is in the process_specification entity.
+      heat_treatment:
+        type: object
+        required: false
+        description: >
+          Required post-machining heat treatment per the drawing callout.
+          Captures the target condition and governing process specification.
+          The full process_specification entity (with Nadcap category, applicable
+          materials, and documentation requirements) is defined in
+          extensions/outside-processing.md.
+        attributes:
+          condition:
+            type: string
+            description: Target condition code
+            examples: ["H1025", "H1150M", "T6"]
+          spec_primary:
+            type: string
+            description: Primary heat treatment process specification
+            examples: ["AMS 2759/3", "AMS 2770"]
+          spec_alternate:
+            type: string
+            description: Acceptable alternate specification
+          spec_class:
+            type: string
+            description: Class within the H/T spec if applicable
+
+      # --- Tracking ---
+      status:
+        type: enum
+        values: [Active, Obsolete, Pending Approval]
+        default: Active
+
+    relationships:
+      specified_by:
+        target: material_specification
+        cardinality: many-to-one
+        description: The formal specification this material conforms to
+
+      procured_as:
+        target: material_lot
+        cardinality: one-to-many
+        description: Physical lots of this material in inventory
+
+      consumed_by:
+        target: bom_line
+        cardinality: one-to-many
+        description: BOMs/jobs that use this material
+
+      supplied_by:
+        target: supplier
+        cardinality: many-to-many
+        description: Approved suppliers for this material
+
+  # ============================================================
+  # MATERIAL_SPECIFICATION
+  # A published standard (AMS, ASTM, MIL, etc.) as a first-class entity.
+  #
+  # Standards relationship: STEP AP242 references the AMS spec number as a
+  # text string in PMI. There is no STEP entity for the specification itself —
+  # no queryable alloy family, UNS number, condition list, or DFARS applicability
+  # flag. This entity fills that gap; it makes the specification a named,
+  # queryable object that material_lot records can link to.
+  # See extensions/material-certs.md for the narrative definition.
+  # ============================================================
+  material_specification:
+    description: >
+      A published standard defining chemistry, mechanical properties,
+      testing requirements, and acceptance criteria for a material
+      in a specific product form. In STEP AP242, the spec number appears
+      only as unstructured PMI text; this entity is the structured
+      representation that enables programmatic queries against spec family,
+      conditions, DFARS applicability, and cross-references.
+
+    attributes:
+      id:
+        type: uuid
+        required: true
+
+      spec_number:
+        type: string
+        required: true
+        description: Specification identifier
+        examples: ["AMS 5659", "ASTM A564", "AMS 2759/3"]
+
+      spec_body:
+        type: enum
+        required: true
+        values: [SAE, ASTM, MIL, ASME, NASM, OEM, Internal]
+        description: Standards-issuing body per Decision 1.7.
+
+      title:
+        type: string
+        required: true
+        description: Full specification title
+
+      revision:
+        type: string
+        required: false
+
+      spec_category:
+        type: enum
+        required: true
+        values: [Material, Process, Test Method]
+
+      alloy_common_name:
+        type: string
+        required: false
+        description: For material specs, the alloy covered
+
+      uns_number:
+        type: string
+        required: false
+
+      form_covered:
+        type: enum
+        required: false
+        values: [Bar, Plate, Sheet, Forging, Casting, Tube, Wire, Extrusion, Powder, Multiple]
+
+      types:
+        type: object[]
+        required: false
+        description: Type designators defined within the spec
+        item_schema:
+          designator: { type: string }
+          meaning: { type: string }
+
+      classes:
+        type: object[]
+        required: false
+        description: Class designators defined within the spec
+        item_schema:
+          designator: { type: string }
+          meaning: { type: string }
+
+      conditions:
+        type: object[]
+        required: false
+        description: Allowed conditions with property targets
+        item_schema:
+          code: { type: string }
+          description: { type: string }
+          hardness_range: { type: string }
+          tensile_min: { type: string }
+          yield_min: { type: string }
+
+      cross_references:
+        type: object[]
+        required: false
+        description: Equivalent specifications in other systems
+        item_schema:
+          spec_number: { type: string }
+          spec_body: { type: string }
+          relationship: { type: enum, values: [Equivalent, Supersedes, Superseded By, Related] }
+
+      supersedes:
+        type: string
+        required: false
+
+      status:
+        type: enum
+        values: [Current, Superseded, Cancelled]
+
+    relationships:
+      has_condition:
+        target: material_condition
+        cardinality: one-to-many
+        description: >
+          Allowed conditions (tempers) defined within this specification.
+          Each condition carries its minimum mechanical properties.
+          Defined in schemas/material_condition.yaml.
+
+  # ============================================================
+  # MATERIAL_LOT
+  # A physical quantity of material with full traceability.
+  #
+  # Standards relationship: This entity is a Layer 2 (Manufacturer Extension) addition.
+  # STEP AP242 has no concept of a physical lot — it defines design intent, not
+  # received material. ISA-95 Part 2 defines general lot concepts but not the
+  # aerospace-specific attributes: heat_number traceability to a specific mill,
+  # dfars_compliant melt-country verification, pmi_verified receiving check, and
+  # the link to the certification_document chain (MTR, CoC, DFARS declaration).
+  #
+  # This entity is the manufacturer-layer gap fill that makes a shipment certifiable and
+  # DFARS-auditable. See extensions/material-certs.md for the full narrative and
+  # the certification_document entity schema.
+  # ============================================================
+  material_lot:
+    description: >
+      A specific quantity of material from a specific melt/heat, with full
+      traceability to origin, certifications, and consumption. This is a
+      Layer 2 (Manufacturer Extension) entity — it does not correspond to any entity
+      in STEP AP242, MTConnect, QIF, or X12 EDI. It fills the gap between
+      the drawing callout (STEP PMI) and the physical material received,
+      carrying the heat number, melt country, DFARS compliance flag, and
+      certification document chain required for cert package assembly.
+
+    attributes:
+      id:
+        type: uuid
+        required: true
+
+      lot_number:
+        type: string
+        required: true
+        description: Internal tracking number
+
+      heat_number:
+        type: string
+        required: true
+        description: Mill heat/melt identifier
+
+      material:
+        type: ref
+        target: material
+        required: true
+
+      supplier:
+        type: ref
+        target: supplier
+        required: true
+        description: Distributor/supplier who provided the material
+
+      mill_source:
+        type: string
+        required: false
+        description: Original mill/foundry name
+
+      melt_country:
+        type: string
+        required: true
+        description: Country where melted (ISO 3166 code)
+
+      manufacture_country:
+        type: string
+        required: false
+        description: Country where wrought/formed
+
+      dfars_compliant:
+        type: boolean
+        required: true
+        description: >
+          Meets DFARS 252.225-7009 specialty metals requirements — material
+          melted and manufactured in the US or a qualifying country.
+          Qualifying countries listed in extensions/supplier-approval.md.
+          This field is not defined in any manufacturing standard; it is a
+          regulatory compliance field required for DoD contract traceability.
+
+      conflict_mineral_status:
+        type: enum
+        required: false
+        values: [Compliant, Declaration on File, Unknown, Not Applicable]
+
+      melt_practice:
+        type: enum
+        required: false
+        values: [VIM, VAR, VIM+VAR, AOD, ESR, EAF, BOF, Other]
+        description: Melting practice
+
+      quantity_received:
+        type: decimal
+        required: true
+
+      quantity_on_hand:
+        type: decimal
+        required: true
+        description: Current available quantity (computed)
+
+      uom:
+        type: string
+        required: true
+        examples: ["ea", "in", "ft", "lb", "kg"]
+
+      condition:
+        type: string
+        required: false
+        description: Current condition/temper of this lot
+
+      receiving_date:
+        type: date
+        required: true
+
+      shelf_life_expiration:
+        type: date
+        required: false
+        description: For age-sensitive materials
+
+      po_reference:
+        type: ref
+        target: purchase_order_line
+        required: true
+
+      location:
+        type: ref
+        target: inventory_location
+        required: true
+
+      certifications:
+        type: ref[]
+        target: certification_document
+        description: >
+          MTR, CoC, DFARS declaration, PMI report, conflict minerals declaration.
+          The certification_document entity schema is defined in
+          extensions/material-certs.md. QIF does not define cert document types;
+          X12 EDI carries cert references only as free text or PDF attachments.
+          This link is the manufacturer-layer chain that makes a shipment certifiable.
+
+      pmi_verified:
+        type: boolean
+        required: false
+        default: false
+        description: >
+          Positive Material Identification (PMI) performed at receiving inspection.
+          PMI uses XRF or OES to verify alloy chemistry matches the MTR claim.
+          Required for ITAR-controlled alloys and customer-specified in some quality
+          flowdown plans (QA-004 extensions). Not defined in any standard — a manufacturer
+          receiving practice.
+
+      status:
+        type: enum
+        values: [Available, Reserved, In Use, Quarantined, Consumed, Rejected]
+
+    relationships:
+      instance_of:
+        target: material
+        cardinality: many-to-one
+
+      conforms_to:
+        target: material_specification
+        cardinality: many-to-one
+        description: The specification this lot must conform to (redundant with material.specified_by; kept on lot for direct traceability)
+
+      certified_by:
+        target: certification_document
+        cardinality: one-to-many
+
+      verified_by:
+        target: pmi_event
+        cardinality: one-to-many
+        description: PMI events performed on this lot at receiving; see schemas/pmi_event.yaml
+
+      purchased_via:
+        target: purchase_order_line
+        cardinality: many-to-one
+
+      supplied_by:
+        target: supplier
+        cardinality: many-to-one
+        description: Distributor or mill who supplied this lot
+
+      consumed_by:
+        target: job
+        cardinality: one-to-many
+
+      stored_at:
+        target: inventory_location
+        cardinality: many-to-one
+
+# ============================================================
+# SHARED TYPES
+# ============================================================
+types:
+  dimension:
+    description: A physical measurement with value, unit, and optional tolerance
+    attributes:
+      value: { type: decimal, required: true }
+      uom: { type: string, required: true, examples: ["in", "mm", "ft", "lb", "kg"] }
+      tolerance: { type: string, required: false, examples: ["+0.000/-0.005", "+/- 0.010"] }
+
+# ============================================================
+# MATERIAL_LOT STATE MACHINE
+#
+# Governs the lifecycle of a material_lot from receiving through consumption
+# or rejection. The status field on material_lot is this machine's current state.
+#
+# No Layer-1 standard defines lot lifecycle states. ISA-95 Part 2 defines
+# general material lot states; the states here are calibrated to aerospace CM
+# receiving and issue practice. Quarantined and the NCR/MRB loop are additions
+# not in ISA-95.
+# ============================================================
+
+state_machine:
+  state_machine_version: 1
+  entity: material_lot
+  field: status
+
+  states:
+    Available:
+      description: Lot has passed receiving inspection; quantity on hand; eligible for job issue
+      terminal: false
+
+    Reserved:
+      description: Quantity committed to a job but not yet physically issued to the shop floor
+      terminal: false
+
+    In_Use:
+      description: Quantity physically issued to an active job operation
+      terminal: false
+
+    Quarantined:
+      description: Lot held pending disposition; no further issues permitted until NCR resolved
+      terminal: false
+
+    Consumed:
+      description: All quantity used; lot is closed. Terminal.
+      terminal: true
+
+    Rejected:
+      description: Lot condemned — receiving rejection, NCR Scrap disposition, or DFARS non-conformance. Terminal.
+      terminal: true
+
+  transitions:
+    - id: T01
+      from: Available
+      to: Reserved
+      trigger: job.material_issue_planned
+      description: Planner or scheduler reserves material for an upcoming job operation
+      guard: quantity_available >= quantity_required
+      side_effects:
+        - Increment reserved_qty by the reservation quantity
+        - Decrement available_qty by the same amount
+        - Log inventory event (type: Reservation)
+
+    - id: T02
+      from: Available
+      to: Quarantined
+      trigger: ncr.opened_against_lot
+      description: NCR raised against this lot while it is still Available (e.g., receiving-inspection hold released but subsequent PMI failure)
+      guard: none
+      side_effects:
+        - Block all new reservations and issues for this lot
+        - Log inventory event (type: Quarantine)
+        - Notify quality engineer and materials team
+
+    - id: T03
+      from: Available
+      to: Rejected
+      trigger: receiving_inspection.fail
+      description: Lot fails receiving inspection before any quantity is issued
+      guard: quantity_on_hand == quantity_received  # no prior issues
+      side_effects:
+        - Set quantity_on_hand to 0 (condemned)
+        - Log inventory event (type: Rejection)
+        - Trigger NCR creation
+
+    - id: T04
+      from: Reserved
+      to: In_Use
+      trigger: operation.material_issue_actual
+      description: Material physically issued to the shop floor for an active operation
+      guard: reservation is still valid; lot not quarantined or rejected since reservation
+      side_effects:
+        - Decrement reserved_qty
+        - Increment in_use_qty
+        - Log inventory event (type: Issue); record job_id and operation_id
+
+    - id: T05
+      from: Reserved
+      to: Available
+      trigger: reservation.cancelled
+      description: Planner cancels the reservation (job replanned, material substitution, etc.)
+      guard: none
+      side_effects:
+        - Decrement reserved_qty
+        - Increment available_qty
+        - Log inventory event (type: Reservation_Cancelled)
+
+    - id: T06
+      from: Reserved
+      to: Quarantined
+      trigger: ncr.opened_against_lot
+      description: NCR raised against lot while reservation exists
+      guard: none
+      side_effects:
+        - Cancel all open reservations for this lot
+        - Block new issues
+        - Log inventory event (type: Quarantine)
+
+    - id: T07
+      from: In_Use
+      to: Consumed
+      trigger: operation.complete
+      description: Operation completes; all reserved quantity has been used
+      guard: qty_consumed == qty_issued AND quantity_on_hand == 0
+      side_effects:
+        - Set quantity_on_hand to 0
+        - Log inventory event (type: Consumption)
+        - Close lot record (read-only)
+
+    - id: T08
+      from: In_Use
+      to: Available
+      trigger: operation.material_return
+      description: Unused material returned to stock after an operation (partial usage)
+      guard: returned_quantity > 0 AND returned_quantity <= qty_issued
+      side_effects:
+        - Increment quantity_on_hand by returned_quantity
+        - Decrement in_use_qty
+        - Log inventory event (type: Return)
+
+    - id: T09
+      from: In_Use
+      to: Quarantined
+      trigger: ncr.opened_against_lot
+      description: NCR opened against lot while quantity is in use on the shop floor
+      guard: none
+      side_effects:
+        - Flag all active job operations using this lot for supervisor review
+        - Block further issues of remaining quantity
+        - Log inventory event (type: Quarantine)
+
+    - id: T10
+      from: Quarantined
+      to: Available
+      trigger: ncr.closed
+      description: NCR closed with Use-As-Is or Rework-Complete disposition; lot reinstated
+      guard: mrb_authorization_on_file AND ncr.disposition IN [Use_As_Is, Rework_Complete]
+      side_effects:
+        - Remove quarantine hold
+        - Log inventory event (type: Quarantine_Lifted); record NCR ID and MRB authorization
+        - Restore available_qty to quantity_on_hand
+
+    - id: T11
+      from: Quarantined
+      to: Rejected
+      trigger: ncr.closed
+      description: NCR closed with Scrap or Return_to_Supplier disposition
+      guard: mrb_authorization_on_file AND ncr.disposition IN [Scrap, Return_to_Supplier]
+      side_effects:
+        - Set quantity_on_hand to 0 (condemned or returned)
+        - Log inventory event (type: Rejection); record NCR ID
+        - Notify purchasing if Return_to_Supplier (initiates supplier return process)
+      terminal: true
+
+    - id: T12
+      from: Available
+      to: Available
+      trigger: inventory.physical_count_adjustment
+      description: Quantity adjusted after physical inventory count (positive or negative)
+      guard: adjustment authorized by materials manager
+      side_effects:
+        - Update quantity_on_hand to counted quantity
+        - Log inventory event (type: Adjustment); record counter_id and authorization
+
+  illegal_transitions:
+    - from: Consumed
+      to: [Available, Reserved, In_Use, Quarantined]
+      reason: A consumed lot is fully expended. Rework of a part does not reconstitute the lot; issue a new material lot for rework.
+
+    - from: Rejected
+      to: [Available, Reserved, In_Use, Consumed]
+      reason: A rejected lot is condemned. It cannot re-enter the supply chain without a new receiving record (new lot UUID). Return-to-supplier creates a shipping record; it does not restore the lot.
+
+    - from: In_Use
+      to: Rejected
+      reason: If in-use material is found non-conforming, the lot must transition through Quarantined first so that all in-process parts using the lot can be identified and disposition determined before the lot is condemned.
+
+    - from: Reserved
+      to: Consumed
+      reason: Reserved material that is never issued cannot be consumed. Either issue it (→ In_Use → Consumed) or cancel the reservation (→ Available).

@@ -1,0 +1,259 @@
+# schemas/customer_purchase_order.yaml
+#
+# Layer-1 coverage:
+#   X12 850: The inbound purchase order from a prime contractor / OEM to the manufacturer.
+#   The X12 850 is the standard transmission format for this PO. However, the 850 carries
+#   quality obligations only as unstructured MSG text or PDF attachments — not in structured
+#   quality clause fields. The the manufacturer customer_purchase_order entity is the structured
+#   representation that bridges the inbound 850 to the quality flowdown plan.
+#
+# Layer-2 (Manufacturer Extension): Distinct from purchase_order (outbound) per Decision 1.4.
+#   The inbound PO from the customer is the origin of the quality flowdown cascade:
+#     Customer PO → production job → sub-tier POs
+#   Its direction (inbound), identity (customer_id FK), and role (quality obligation source)
+#   justify a distinct entity even though the commercial attributes mirror purchase_order.
+#   A customer_purchase_order creates a sales_order when accepted.
+#
+# State machine: Required.
+#   States: Received → Under_Review → Acknowledged | Rejected
+#           Acknowledged → In_Production → Partially_Shipped → Fully_Shipped → Invoiced → Closed
+#           Any non-terminal: → Cancelled
+#   Terminal states: Closed, Rejected, Cancelled
+#   Guard: Acknowledged requires contract review + ITAR screening of customer.
+#
+# Prose source: extensions/quality-flowdowns.md (Quality Flowdown Cascade, top of chain),
+#               extensions/ip-boundary.md (X12 850 Inbound PO section),
+#               reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Supply Chain (Phase 2.E)
+# Sibling schemas: schemas/purchase_order.yaml, schemas/customer.yaml
+
+entities:
+
+  customer_purchase_order:
+    description: >
+      An inbound purchase order from an aerospace customer. The origin of the quality
+      flowdown cascade: quality clauses parsed from the PO text (or attached quality
+      addendum) drive the quality_flowdown_plan created when the PO is accepted and a
+      A sales order is opened in the production system. Kept distinct from purchase_order (outbound) per
+      Decision 1.4 — direction, role in the quality cascade, and lifecycle differ.
+      Transmitted via X12 850; quality obligations in the 850 appear as MSG text or
+      attachments and are structured into quality_flowdown_plan by the manufacturer quality team.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when PO is received and entered into the production system
+      po_number:
+        type: string
+        required: true
+        description: Customer's purchase order number (primary commercial reference)
+      customer_id:
+        type: uuid
+        required: true
+        description: "FK → customer.id — the customer who issued this PO"
+      received_date:
+        type: date
+        required: true
+        description: Date the PO was received by the manufacturer
+      po_date:
+        type: date
+        required: false
+        description: Date the PO was issued by the customer (may differ from received_date)
+      x12_850_reference:
+        type: string
+        required: false
+        description: EDI transmission reference for the X12 850 document that carried this PO
+      contract_ref:
+        type: string
+        required: false
+        description: Customer's prime contract number (required for DFARS traceability)
+      itar_marking:
+        type: boolean
+        required: false
+        default: false
+        description: Whether the PO or its attachments include ITAR-controlled technical data
+      line_items:
+        type: array
+        required: true
+        description: Individual line items on the customer PO
+        items:
+          line_number:
+            type: integer
+            required: true
+          part_number:
+            type: string
+            required: true
+          revision:
+            type: string
+            required: false
+          description:
+            type: string
+            required: false
+          quantity:
+            type: number
+            required: true
+          unit_of_measure:
+            type: string
+            required: true
+            examples: ["EA", "LBS"]
+          unit_price:
+            type: number
+            required: false
+          currency:
+            type: string
+            required: false
+            default: "USD"
+          required_ship_date:
+            type: date
+            required: false
+          drawing_number:
+            type: string
+            required: false
+          drawing_revision:
+            type: string
+            required: false
+          part_id:
+            type: uuid
+            required: false
+            nullable: true
+            description: "FK → part.id (if matched in item master)"
+      flowdown_clauses:
+        type: array
+        required: false
+        description: >
+          Quality clause codes identified from PO text or quality addendum.
+          These are parsed by the manufacturer quality; the machine-readable versions are in
+          quality_flowdown_plan.clauses[].
+        items:
+          type: string
+          examples: ["QA-001", "QA-002", "QA-003", "QA-008", "QA-013"]
+      quality_addendum_reference:
+        type: string
+        required: false
+        description: File reference to the customer's quality addendum PDF attachment
+      sales_order_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → sales_order.id — populated when PO is accepted and SO is created"
+      acknowledgment_due_date:
+        type: date
+        required: false
+        description: Date by which the manufacturer must acknowledge the PO (if specified by customer)
+      total_amount:
+        type: number
+        required: false
+      currency:
+        type: string
+        required: false
+        default: "USD"
+      status:
+        type: enum
+        required: true
+        values:
+          - Received
+          - Under_Review
+          - Acknowledged
+          - In_Production
+          - Partially_Shipped
+          - Fully_Shipped
+          - Invoiced
+          - Closed
+          - Rejected
+          - Cancelled
+        description: Current lifecycle state of this customer PO
+      rejection_reason:
+        type: string
+        required: false
+        description: Reason for rejection or cancellation (if applicable)
+
+    state_machine:
+      description: >
+        Customer PO lifecycle from receipt through invoice. Terminal states: Closed, Rejected, Cancelled.
+        Transition to Acknowledged requires: (1) contract review complete, (2) ITAR screening
+        of customer confirmed in customer record, (3) export classification checked for all line items.
+      initial_state: Received
+      terminal_states: [Closed, Rejected, Cancelled]
+      states:
+        Received:
+          description: PO received from customer; logged in the production system; not yet reviewed
+        Under_Review:
+          description: >
+            the manufacturer reviewing PO for feasibility, pricing, lead time, quality requirements,
+            and ITAR/export compliance. Contract review in progress.
+        Acknowledged:
+          description: >
+            the manufacturer has acknowledged the PO to the customer (X12 855 sent).
+            Contract review complete; ITAR screening confirmed; sales order created.
+          guards:
+            - Customer ITAR screening must be completed (customer.itar_screened = true)
+            - Export classification checked for all line items with ITAR/EAR-controlled parts
+            - Contract terms reviewed and accepted
+        In_Production:
+          description: At least one job is open in the production system for this PO; production underway
+        Partially_Shipped:
+          description: At least one line item has been shipped; one or more remain
+        Fully_Shipped:
+          description: All quantities on all line items have been shipped
+        Invoiced:
+          description: X12 810 invoice transmitted to customer; awaiting payment
+        Closed:
+          description: Payment received; PO record archived; retention clock started
+        Rejected:
+          description: the manufacturer declined the order (capacity, capability, compliance, or commercial reason)
+        Cancelled:
+          description: Customer cancelled the PO or the manufacturer withdrew acceptance; all jobs cancelled
+      transitions:
+        - from: Received
+          to: Under_Review
+          trigger: the manufacturer begins contract review
+        - from: Received
+          to: Rejected
+          trigger: Immediately declined (duplicate, wrong recipient, beyond capability)
+        - from: Under_Review
+          to: Acknowledged
+          trigger: Contract review approved; ITAR screening confirmed; X12 855 sent
+          guard: customer.itar_screened = true AND export classifications verified
+        - from: Under_Review
+          to: Rejected
+          trigger: Contract review reveals terms, pricing, or compliance issue the manufacturer cannot accept
+        - from: Acknowledged
+          to: In_Production
+          trigger: production job opened for at least one line item
+        - from: Acknowledged
+          to: Cancelled
+          trigger: Customer cancels before production starts
+        - from: In_Production
+          to: Partially_Shipped
+          trigger: First shipment dispatched
+        - from: In_Production
+          to: Cancelled
+          trigger: Customer cancels during production (cancellation charges may apply)
+        - from: Partially_Shipped
+          to: Fully_Shipped
+          trigger: Final remaining quantities shipped
+        - from: Partially_Shipped
+          to: Cancelled
+          trigger: Customer cancels remaining quantities
+        - from: Fully_Shipped
+          to: Invoiced
+          trigger: X12 810 invoice transmitted to customer
+        - from: Invoiced
+          to: Closed
+          trigger: Payment confirmed; PO record closed
+
+    relationships:
+      received_from_customer:
+        target: customer
+        cardinality: many-to-one
+        description: The customer who issued this PO
+      creates_sales_order:
+        target: sales_order
+        cardinality: many-to-one
+        nullable: true
+        description: The sales order created in the production system when this PO is accepted
+      references_parts:
+        target: part
+        cardinality: one-to-many
+        nullable: true
+        description: Parts referenced in PO line items (where matched in item master)

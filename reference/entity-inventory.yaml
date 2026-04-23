@@ -1,0 +1,786 @@
+# Entity Inventory for the precision-manufacturing-ontology
+# Generated: 2026-04-22 (coherence pass, Task 5)
+# Updated: 2026-04-22 (Phase 3.2 matrix regen — has_schema fields and notes updated for all Phase 2.A–2.F schemas)
+# Source: reference/composition-archetypes.md + extensions/*.md + reference/domain-map.md + schemas/*.yaml
+#
+# Purpose: machine-readable union of every entity the ontology touches. Feeds the
+# entity matrix (Task 6), INDEX.md (Task 7), and relationship graph (Task 8).
+#
+# Naming convention:
+#   Entries use snake_case to match schemas/. Archetype display names
+#   are title-case in brackets (e.g., [Material Specification]); they are resolved
+#   to snake_case here. Aliases and merges are recorded in notes.
+#
+# Field conventions:
+#   - archetypes_used_in: list of [A, B, C] letters, or "none" for entities defined
+#     in extensions/schemas/domain-map that are not exercised by any archetype.
+#   - existing_definitions: files where the entity is currently referenced or defined;
+#     inline comments narrow to section/paragraph where useful. An empty list is the
+#     signal that no prose or schema definition exists yet.
+#   - has_schema: path to the canonical YAML schema file. Inline comments distinguish
+#     standalone schemas, embedded sub-objects, and alias discriminator values.
+#     null only for entities that are validated strings/enums, removed from canon,
+#     or genuinely have no schema (deferred to a future cluster).
+#   - notes: interpretation decisions, alias resolutions, phase-of-authoring notes.
+#
+# Entries sorted alphabetically by name.
+# Entity count: 82 (original 80 + work_order Phase 2.C + receipt Phase 2.E; two entries
+#   renamed: approved_vendor_list_entry → approved_supplier_list_entry,
+#   vendor_qualification_event → supplier_qualification_event).
+
+inventory:
+
+  - name: approved_supplier_list_entry
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/approved_supplier_list_entry.yaml  # canonical schema (Phase 2.E)
+      - extensions/supplier-approval.md  # prose narrative
+      - reference/composition-archetypes.md  # Archetype B: "[Supplier Approval]" node = AVL entry for Acme HT / Sierra Passivation
+    has_schema: schemas/approved_supplier_list_entry.yaml
+    notes: "Renamed from approved_vendor_list_entry per Decision 1.3. The ASL entry is the structured approval record; supplier is the contact/address record. Archetype B display name [Supplier Approval] is an alias pointing to this entity."
+
+  - name: as9102_form_1
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # embedded sub-object in first_article_inspection
+      - reference/composition-archetypes.md  # all three archetypes
+      - extensions/quality-flowdowns.md  # first_article_inspection.form1 nested schema
+    has_schema: schemas/quality.yaml  # embedded in first_article_inspection
+    notes: "Part Number Accountability form. Embedded as as9102_form_1 sub-object inside first_article_inspection in schemas/quality.yaml. No independent UUID."
+
+  - name: as9102_form_2
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # embedded sub-object in first_article_inspection
+      - reference/composition-archetypes.md  # Archetype B and C
+      - extensions/quality-flowdowns.md  # first_article_inspection.form2 nested schema
+    has_schema: schemas/quality.yaml  # embedded in first_article_inspection
+    notes: "Product Accountability (materials and processes). Out of scope for Archetype A. Embedded as as9102_form_2 sub-object inside first_article_inspection in schemas/quality.yaml. No independent UUID."
+
+  - name: as9102_form_3
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # embedded sub-object in first_article_inspection
+      - reference/composition-archetypes.md  # all three archetypes
+      - extensions/quality-flowdowns.md  # first_article_inspection.form3 nested schema
+    has_schema: schemas/quality.yaml  # embedded in first_article_inspection
+    notes: "Characteristic Accountability. QIF covers this form; Form 2 and Form 1 are outside QIF scope. Embedded as as9102_form_3 sub-object inside first_article_inspection in schemas/quality.yaml. No independent UUID."
+
+  - name: assembly
+    archetypes_used_in: [C]
+    existing_definitions:
+      - schemas/part.yaml  # canonical schema (Phase 2.B)
+      - reference/composition-archetypes.md  # Archetype C introduces as distinct entity; section 'Framing choice'
+    has_schema: schemas/part.yaml
+    notes: "Distinct entity per Decision 1.1. Assembly has its own FAI, cert package, serial number, and shipment. composed_of edge targets bom_line[]. part and assembly share no common parent type in Layer 2 (no item supertype per Decision 1.9). Schema: schemas/part.yaml (Phase 2.B)."
+
+  - name: assembly_operation
+    archetypes_used_in: [C]
+    existing_definitions:
+      - schemas/routing.yaml  # canonical schema (Phase 2.C)
+      - reference/composition-archetypes.md  # Archetype C: OP-A010/A020/A030
+    has_schema: schemas/routing.yaml
+    notes: "Distinct subtype of operation in schemas/routing.yaml (Phase 2.C). Extends operation with torque control, fastener reference, witness inspection, and bolt-up step attributes. assembly_operation is not a parent-type of operation; it extends operation for assembly contexts."
+
+  - name: assembly_routing
+    archetypes_used_in: [C]
+    existing_definitions:
+      - schemas/routing.yaml  # canonical schema (Phase 2.C)
+      - reference/composition-archetypes.md  # Archetype C: R-MFG-GMB-BKT-ASSY-012-v1
+    has_schema: schemas/routing.yaml
+    notes: "Distinct entity from routing in schemas/routing.yaml (Phase 2.C). assembly_routing is the process plan template for assembly operations; it adds torque_spec_ref, required_witnesses, and assembly-specific fields that do not apply to machining routings."
+
+  - name: bom_line
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/part.yaml  # canonical schema (Phase 2.B)
+      - schemas/material.yaml  # material.consumed_by relationship target
+    has_schema: schemas/part.yaml
+    notes: "Distinct many-to-many edge entity per Decision 1.1. Schema: schemas/part.yaml (Phase 2.B). Carries qty, UOM, find-number, effectivity, and polymorphic parent/child FKs with subject_type discriminators."
+
+  - name: calibration_record
+    archetypes_used_in: none
+    existing_definitions:
+      - extensions/quality-flowdowns.md  # FAI form3 characteristics[].equipment_calibration_id
+    has_schema: null
+    notes: "Referenced only by uuid link from FAI Form 3 characteristic measurements. No standalone schema or narrative definition. Candidate for a dedicated metrology extension or deletion if calibration tracking lives solely in the production system with no schema obligation."
+
+  - name: certification_document
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/certification_document.yaml  # canonical schema (Phase 2.A)
+      - extensions/material-certs.md  # prose narrative
+      - reference/composition-archetypes.md  # all archetypes: MTR, CoC, DFARS Declaration entries
+      - reference/domain-map.md  # Section 1 — Materials
+    has_schema: schemas/certification_document.yaml
+    notes: "Supertype with cert_type discriminator per Decision 1.6. cert_type enum: MTR | CoC | DFARS_Declaration | PMI_Report | ConflictMineral | ShelfLife | ExportCompliance. Per-cert-type *_fields sub-schemas in schemas/certification_document.yaml (Phase 2.A). Subtype rows are archetype display aliases — no standalone schema files."
+
+  - name: certification_package
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/certification_package.yaml  # canonical schema (Phase 2.F)
+      - reference/composition-archetypes.md  # all archetypes: shipment includes_document → [Certification Package]
+      - extensions/material-certs.md  # 'CERT PACKAGE' block at bottom of traceability chain
+      - extensions/quality-flowdowns.md  # 'CERT PACKAGE (assembled at shipment)' block
+      - extensions/ip-boundary.md  # 'Cert Package' section defines what leaves the shop
+    has_schema: schemas/certification_package.yaml
+    notes: "Nested per Decision 1.9. contains_packages[] holds child certification_package refs (assembly cert contains constituent part cert packages). Schema: schemas/certification_package.yaml (Phase 2.F)."
+
+  - name: characteristic_measurement
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # embedded in as9102_form_3.characteristics[] in first_article_inspection
+      - reference/composition-archetypes.md  # all archetypes: QIF results records characteristic measurement
+      - extensions/quality-flowdowns.md  # FAI form3.characteristics[] schema
+    has_schema: schemas/quality.yaml  # embedded in as9102_form_3.characteristics[]
+    notes: "A single measurement of a single characteristic. Carries qif_characteristic_id link, measured value, deviation, pass/fail. Embedded in as9102_form_3.characteristics[] sub-object within first_article_inspection in schemas/quality.yaml."
+
+  - name: coc
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: CoC
+      - reference/composition-archetypes.md  # all archetypes: certification_document for CoC
+      - extensions/material-certs.md  # certification_document cert_type enum value CoC
+      - extensions/quality-flowdowns.md  # QA-003 Certificate of Conformance required
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: CoC
+    notes: "Certificate of Conformance. Alias of certification_document (cert_type: CoC) per Decision 1.6. coc_fields sub-schema within schemas/certification_document.yaml. No standalone schemas/coc.yaml."
+
+  - name: conflict_minerals_declaration
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: ConflictMineral
+      - extensions/material-certs.md  # certification_document cert_type enum value ConflictMineral; conflict_mineral_fields sub-schema
+      - extensions/quality-flowdowns.md  # QA-009 Conflict Minerals clause
+      - schemas/material.yaml  # material_lot.conflict_mineral_status attribute
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: ConflictMineral
+    notes: "Alias of certification_document (cert_type: ConflictMineral) per Decision 1.6. conflict_mineral_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
+
+  - name: country
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: [Country] US via has_melt_country edge
+      - extensions/material-certs.md  # melt_country / manufacture_country fields (string, ISO code)
+      - extensions/supplier-approval.md  # DFARS qualifying countries list
+      - schemas/material.yaml  # material_lot.melt_country (string, ISO 3166)
+    has_schema: null
+    notes: "Validated string attribute per Decision 1.7. Canonical form: ISO 3166-1 alpha-2 (e.g., US, DE). DFARS qualifying-countries membership is a reference-list lookup at compliance-check time, not a per-country entity. Not a first-class entity. Archetype display node [Country] is a string field reference on material_lot."
+
+  - name: customer
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/customer.yaml  # canonical schema (Phase 2.E)
+      - extensions/quality-flowdowns.md  # quality_clause.customer_id, quality_flowdown_plan.customer_id
+      - extensions/supplier-approval.md  # customer_asl.customer_id, customer_approvals[].customer_id
+      - reference/domain-map.md  # Section 6 — Sales and Quoting mentions customers
+    has_schema: schemas/customer.yaml
+    notes: "Persistent customer record with ITAR screening, DoD prime flag, DFARS flag, and customer_asl references. Schema: schemas/customer.yaml (Phase 2.E)."
+
+  - name: customer_approval
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/customer_approval.yaml  # canonical schema (Phase 2.B)
+      - reference/composition-archetypes.md  # all archetypes: has_approval_state → [Customer Approval]
+      - reference/domain-map.md  # Section 2 — Parts and Structures mentions approval status
+    has_schema: schemas/customer_approval.yaml
+    notes: "Records whether the manufacturer is an approved source for a given part number + revision per customer. Carries approval_status and fai_status enums; qualification_method field. Schema: schemas/customer_approval.yaml (Phase 2.B)."
+
+  - name: customer_asl
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/customer_asl.yaml  # canonical schema (Phase 2.E)
+      - extensions/supplier-approval.md  # prose narrative
+    has_schema: schemas/customer_asl.yaml
+    notes: "Customer's Approved Source List document. Distinct from approved_supplier_list_entry (the manufacturer's per-vendor record). Entries link via supplier_id → supplier.id per Decision 1.3. Schema: schemas/customer_asl.yaml (Phase 2.E)."
+
+  - name: customer_purchase_order
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/customer_purchase_order.yaml  # canonical schema (Phase 2.E)
+      - reference/composition-archetypes.md  # Archetype B and C: [Customer Purchase Order] in flowdown origin chain
+      - extensions/quality-flowdowns.md  # 'CUSTOMER PURCHASE ORDER (X12 850)' top of flowdown cascade
+      - extensions/ip-boundary.md  # X12 850 section
+    has_schema: schemas/customer_purchase_order.yaml
+    notes: "Inbound X12 850 from customer. Kept distinct per Decision 1.4; it is the origin of the quality flowdown cascade. State machine from Received through Closed. Schema: schemas/customer_purchase_order.yaml (Phase 2.E)."
+
+  - name: data_classification
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/data_classification.yaml  # canonical schema (Phase 2.F)
+      - extensions/ip-boundary.md  # 'Data Classification Matrix' section
+      - reference/domain-map.md  # Section 8 — Compliance and Governance
+    has_schema: schemas/data_classification.yaml
+    notes: "Reference entity implementing the ip-boundary.md Data Classification Matrix. classification_level enum; storage/transmission rules; ITAR flag; access_roles[]; retention_years. Applied to other entities by reference. Schema: schemas/data_classification.yaml (Phase 2.F)."
+
+  - name: dfars_declaration
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: DFARS_Declaration
+      - reference/composition-archetypes.md  # all archetypes: certification_document DFARS Declaration
+      - extensions/material-certs.md  # certification_document cert_type DFARS_Declaration + dfars_fields sub-schema
+      - extensions/quality-flowdowns.md  # QA-008 DFARS specialty metals clause
+      - extensions/ip-boundary.md  # record retention table
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: DFARS_Declaration
+    notes: "Alias of certification_document (cert_type: DFARS_Declaration) per Decision 1.6. dfars_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
+
+  - name: export_classification
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/export_classification.yaml  # canonical schema (Phase 2.B)
+      - reference/composition-archetypes.md  # all archetypes: has_classification edge
+      - extensions/ip-boundary.md  # ITAR Data Handling
+      - reference/domain-map.md  # Section 6 and 8
+    has_schema: schemas/export_classification.yaml
+    notes: "ITAR/EAR classification record per part or assembly. Carries ECCN, USML category, exemptions. Distinct from data_classification (internal storage governance). Schema: schemas/export_classification.yaml (Phase 2.B)."
+
+  - name: export_compliance_declaration
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: ExportCompliance
+      - reference/composition-archetypes.md  # Archetype B and C: ITAR / USML declaration in cert package
+      - extensions/ip-boundary.md  # ITAR data handling rules
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: ExportCompliance
+    notes: "Alias of certification_document (cert_type: ExportCompliance) per Decision 1.6. export_compliance_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
+
+  - name: fai_form_1_header
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype B and C: records → [FAI Form 1 Header]
+      - extensions/quality-flowdowns.md  # first_article_inspection.form1 structured fields (org name, CAGE, drawing, etc.)
+    has_schema: null
+    notes: "The header fields of FAI Form 1 (part identity, supplier identity, FAI report number, CAGE, drawing, design activity). Embedded as a structured sub-object inside as9102_form_1 in quality-flowdowns.md. Archetypes treat as first-class node. Matrix may collapse into as9102_form_1."
+
+  - name: fai_package
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: cert_package contains FAI Package
+    has_schema: null
+    notes: "Bundle of the three AS9102 forms as a single packaged artifact. Distinct from first_article_inspection which is the logical FAI record. A FAI package is the transmitted-to-customer form."
+
+  - name: fastener
+    archetypes_used_in: [C]
+    existing_definitions:
+      - schemas/part.yaml  # alias — part_kind: fastener
+      - reference/composition-archetypes.md  # Archetype C: OP-A020 uses_fastener → [Fastener]
+    has_schema: schemas/part.yaml  # alias — part_kind: fastener
+    notes: "Alias per Decision 1.2. Canonical form is part with part_kind: fastener. part_kind enum in schemas/part.yaml (Phase 2.B)."
+
+  - name: first_article_inspection
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # canonical schema (Phase 2.D)
+      - reference/composition-archetypes.md  # all archetypes: inspected_under edge
+      - extensions/quality-flowdowns.md  # prose narrative
+      - reference/domain-map.md  # Section 4 — Quality
+    has_schema: schemas/quality.yaml
+    notes: "AS9102 Rev C three-form FAI record. as9102_form_1/2/3 embedded as sub-objects with no independent UUIDs. subject_id/subject_type polymorphic FK per Decision 1.9. Schema: schemas/quality.yaml (Phase 2.D)."
+
+  - name: heat_number
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: has_heat edge on material_lot
+      - extensions/material-certs.md  # material_lot.heat_number string attribute; MTR mtr_fields.heat_number
+      - schemas/material.yaml  # material_lot.heat_number (required string)
+    has_schema: null
+    notes: "Validated string attribute per Decision 1.7. Canonical form: material_lot.heat_number (required string). Additional heat data (mill source, melt date, chemistry actuals) lives on material_lot and mtr cert document. Not a first-class entity; archetype display node [Heat Number] is a string field reference. No schema."
+
+  - name: inspection_event
+    archetypes_used_in: none
+    existing_definitions:
+      - extensions/uuid-discipline.md  # entity table: 'Inspection Event' with UUID assignment rule
+    has_schema: null
+    notes: "uuid-discipline.md lists Inspection Event as a UUID-bearing entity (CMM run). Archetypes reference CMM sessions via QIF Results Document and PMI Event nodes but do not introduce a generic inspection_event node. Possibly a supertype of pmi_event + CMM session record; possibly redundant. Matrix should decide relationship to pmi_event."
+
+  - name: inventory_location
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/inventory_location.yaml  # canonical schema (Phase 2.F)
+      - schemas/material.yaml  # material_lot.location relationship target
+      - extensions/material-certs.md  # material_lot.location: uuid reference
+      - extensions/ip-boundary.md  # ITAR-controlled inventory segregation
+    has_schema: schemas/inventory_location.yaml
+    notes: "ISA-95-grounded named storage location. location_type enum; ITAR-segregated flag; self-referential parent_location_id; Off_Site type for tracking material at outside processors. Schema: schemas/inventory_location.yaml (Phase 2.F)."
+
+  - name: item
+    archetypes_used_in: none
+    existing_definitions:
+      - extensions/quality-flowdowns.md  # first_article_inspection.item_id, nonconformance_report.item_id
+      - extensions/material-certs.md  # the production system item class 'Raw Material' mention
+      - reference/domain-map.md  # Section 2 — item master in the production system
+    has_schema: null
+    notes: "REMOVED FROM CANON per Decision 1.9. item is an ERP implementation concept; no Layer-1 standard justifies this supertype in the manufacturer layer. Where extensions use item_id (first_article_inspection, nonconformance_report), these are updated to reference part | assembly as a typed union in Phase 2 schema authoring. No schemas/item.yaml."
+
+  - name: job
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/job.yaml  # canonical schema (Phase 2.C); state machine added Phase 2.F
+      - reference/composition-archetypes.md  # Archetype B and C: [Job] in flowdown origin chain
+      - extensions/outside-processing.md  # outside_process_operation.job_id
+      - extensions/quality-flowdowns.md  # quality_flowdown_plan.job_id, NCR.job_id
+      - extensions/uuid-discipline.md  # entity table: Job — UUID minted by the production system
+      - reference/domain-map.md  # referenced throughout
+    has_schema: schemas/job.yaml
+    notes: "Production run container. UUID anchor across MTConnect, QIF, X12. State machine: Planned → Closed. subject_id/subject_type polymorphic FK per Decision 1.9. Schema: schemas/job.yaml (Phase 2.C + Phase 2.F state machine)."
+
+  - name: key_characteristic
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: measures → [Key Characteristic]
+      - extensions/quality-flowdowns.md  # FAI Form 3 characteristics (by extension)
+    has_schema: null
+    notes: "A drawing characteristic flagged as key/critical per AS9102 definition. Represented as the target of a measurement, not as a standalone schema entity. Matrix should flag gap — KC should have its own attributes (balloon number, drawing reference, tolerance) rather than being implicit in characteristic_measurement."
+
+  - name: kit_record
+    archetypes_used_in: [C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype C: OP-A010 produces → [Kit Record]
+    has_schema: null
+    notes: "Records which sub-component serials are binned to an assembly serial (kit+stage before bolt-up). No schema; no prior definition. Candidate for assembly extension."
+
+  - name: machine_event
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: Operation produces → [Machine Event]
+      - reference/domain-map.md  # MTConnect mentions (layers 1 and 3)
+      - extensions/outside-processing.md  # MTConnect Timeline Gap section
+    has_schema: null
+    notes: "MTConnect work order segment (machine telemetry for a single operation). No yaml schema; well-defined by MTConnect standard. Matrix: decide whether to define an implementer-side machine_event schema or treat as external-standard reference only."
+
+  - name: material
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/material.yaml  # full schema
+      - extensions/material-certs.md  # narrative
+      - reference/composition-archetypes.md  # all archetypes
+      - reference/domain-map.md  # Section 1
+    has_schema: schemas/material.yaml
+    notes: "Well-defined. Baseline example of schema rigor target for other entities. Schema uses layered-disclosure approach (layer_0/1/2 templates)."
+
+  - name: material_condition
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/material_condition.yaml  # canonical schema (Phase 2.A)
+      - reference/composition-archetypes.md  # all archetypes: has_condition edge on material_specification
+      - extensions/material-certs.md  # material_specification.conditions_defined[] with tensile/yield/elongation
+      - schemas/material.yaml  # material_specification.has_condition relationship target
+    has_schema: schemas/material_condition.yaml
+    notes: "First-class entity per Decision 1.7. Named temper/condition within a specification (e.g., T7351, H1025) with minimum mechanical properties. Schema: schemas/material_condition.yaml (Phase 2.A)."
+
+  - name: material_identification
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/material_identification.yaml  # canonical schema (Phase 2.A)
+      - reference/composition-archetypes.md  # Archetype B and C: FAI Form 2 records → [Material Identification]
+      - extensions/quality-flowdowns.md  # FAI form2.line_items[] with spec_type=Material
+    has_schema: schemas/material_identification.yaml
+    notes: "AS9102 Form 2 line-item record. Links material_specification and certification_document to the FAI. fai_id FK points to first_article_inspection (per OQ-02 resolution). Schema: schemas/material_identification.yaml (Phase 2.A)."
+
+  - name: material_lot
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/material.yaml  # full schema
+      - extensions/material-certs.md  # narrative + alternate schema
+      - reference/composition-archetypes.md  # all archetypes
+      - extensions/uuid-discipline.md  # entity table
+      - reference/domain-map.md  # Section 1 and Section 7 (Inventory)
+    has_schema: schemas/material.yaml
+    notes: "Well-defined. Physical received lot with heat number, melt country, DFARS flag, cert chain. Note two near-duplicate schemas in schemas/material.yaml and extensions/material-certs.md — matrix should reconcile."
+
+  - name: material_specification
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/material.yaml  # full schema
+      - extensions/material-certs.md  # narrative + alternate schema
+      - reference/composition-archetypes.md  # all archetypes
+      - reference/domain-map.md  # Section 1
+    has_schema: schemas/material.yaml
+    notes: "Well-defined. Schema exists in two places (schemas/material.yaml and extensions/material-certs.md narrative); matrix should reconcile."
+
+  - name: mrb_disposition
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality.yaml  # embedded in nonconformance_report
+      - extensions/quality-flowdowns.md  # NCR.mrb_status / mrb_disposition / mrb_authorized_by fields
+      - reference/domain-map.md  # Section 4 — Quality mentions MRB
+    has_schema: schemas/quality.yaml  # embedded in nonconformance_report
+    notes: "Material Review Board disposition embedded as mrb_disposition sub-object within nonconformance_report in schemas/quality.yaml. No independent UUID. MRB is not a first-class event entity — disposition, method, authorized-by, and rework-job-id are NCR fields."
+
+  - name: mtr
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: MTR
+      - reference/composition-archetypes.md  # all archetypes: certification_document MTR
+      - extensions/material-certs.md  # certification_document cert_type MTR + mtr_fields sub-schema
+      - extensions/quality-flowdowns.md  # QA-004 MTR required
+      - reference/domain-map.md  # Section 1
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: MTR
+    notes: "Mill Test Report. Alias of certification_document (cert_type: MTR) per Decision 1.6. mtr_fields sub-schema within schemas/certification_document.yaml. No standalone schemas/mtr.yaml."
+
+  - name: nadcap_category
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/nadcap_category.yaml  # canonical schema (Phase 2.E)
+      - reference/composition-archetypes.md  # Archetype B: has_nadcap_category edge
+      - extensions/outside-processing.md  # nadcap category reference table (HT/CP/NDT/WLD/CT/SEAL/FSS/E)
+      - extensions/supplier-approval.md  # nadcap_accreditations[].category
+    has_schema: schemas/nadcap_category.yaml
+    notes: "First-class entity per Decision 1.7. Carries category_code (AC7xxx), name, subscriber primes, PRI auditing body, scope definition. Schema: schemas/nadcap_category.yaml (Phase 2.E)."
+
+  - name: nadcap_certification
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/nadcap_certification.yaml  # canonical schema (Phase 2.E)
+      - reference/composition-archetypes.md  # Archetype B: scope_certified_by → [Nadcap Certification]
+      - extensions/supplier-approval.md  # prose narrative
+      - extensions/outside-processing.md  # Nadcap scope reference section
+    has_schema: schemas/nadcap_certification.yaml
+    notes: "Standalone Nadcap certificate held by a supplier: certificate number, scope category, expiration, audit body. Extracted from approved_supplier_list_entry into a first-class entity. Schema: schemas/nadcap_certification.yaml (Phase 2.E)."
+
+  - name: nonconformance_report
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality.yaml  # canonical schema (Phase 2.D)
+      - extensions/quality-flowdowns.md  # prose narrative
+      - reference/domain-map.md  # Section 4 — Quality
+      - extensions/ip-boundary.md  # record retention table
+    has_schema: schemas/quality.yaml
+    notes: "NCR with embedded mrb_disposition. subject_id/subject_type polymorphic FK per Decision 1.9. State machine: Draft → Closed. Schema: schemas/quality.yaml (Phase 2.D)."
+
+  - name: operation
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/routing.yaml  # canonical schema (Phase 2.C)
+      - reference/composition-archetypes.md  # all archetypes: contains_operation edge
+      - extensions/outside-processing.md  # job operation type enum references
+      - extensions/uuid-discipline.md  # entity table: 'Work Order' — same entity as operation when viewed via MTConnect
+      - reference/domain-map.md  # Section 3
+    has_schema: schemas/routing.yaml
+    notes: "In-house routing operation template. Distinct from work_order (the execution instance on a specific job). work_order.operation_id FKs to operation.id. Schema: schemas/routing.yaml (Phase 2.C)."
+
+  - name: outside_process_operation
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/outside_process_operation.yaml  # canonical schema (Phase 2.C)
+      - extensions/outside-processing.md  # prose narrative
+      - reference/composition-archetypes.md  # Archetype B: OP-030 Heat Treat, OP-050 Passivation
+      - reference/domain-map.md  # Section 3 — Manufacturing (hybrid entity)
+    has_schema: schemas/outside_process_operation.yaml
+    notes: "Hybrid entity: routing operation + purchase order + cert collection event. Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
+
+  - name: part
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/part.yaml  # canonical schema (Phase 2.B)
+      - reference/composition-archetypes.md  # all archetypes
+      - reference/domain-map.md  # Section 2
+      - extensions/uuid-discipline.md  # entity table: 'Part (design)'
+    has_schema: schemas/part.yaml
+    notes: "Standalone part entity. part_kind enum: machined | fastener | raw_stock | purchased_assembly | consumable per Decision 1.2. ITAR/EAR fields. Schema: schemas/part.yaml (Phase 2.B)."
+
+  - name: part_specification
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/part.yaml  # canonical schema (Phase 2.B)
+      - reference/composition-archetypes.md  # all archetypes: specified_by → [Part Specification]
+      - reference/domain-map.md  # Section 2 — customer drawing as spec
+    has_schema: schemas/part.yaml
+    notes: "Governing drawing record: drawing number, revision, CAGE, STEP AP242 file ref, 2D PDF ref, MBD flag. Distinct from material_specification. Schema: schemas/part.yaml (Phase 2.B)."
+
+  - name: pmi_event
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/pmi_event.yaml  # canonical schema (Phase 2.A)
+      - reference/composition-archetypes.md  # all archetypes: verified_by → [PMI Event]
+      - schemas/material.yaml  # material_lot.pmi_verified boolean + verified_by relationship
+      - extensions/material-certs.md  # pmi_verified receiving check mention
+    has_schema: schemas/pmi_event.yaml
+    notes: "First-class XRF/OES/ICP instrument record at receiving inspection. Raw element composition readings linked to material_lot. Schema: schemas/pmi_event.yaml (Phase 2.A)."
+
+  - name: pmi_report
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: PMI_Report
+      - extensions/material-certs.md  # certification_document cert_type PMI_Report
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: PMI_Report
+    notes: "Alias of certification_document (cert_type: PMI_Report) per Decision 1.6. Documents XRF/OES result from a pmi_event. No standalone schema."
+
+  - name: process_certification
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/outside_process_operation.yaml  # canonical schema (Phase 2.C)
+      - extensions/outside-processing.md  # prose narrative
+      - reference/composition-archetypes.md  # Archetype B: results_in, returns_with; Archetype C: references in assembly FAI Form 2
+      - extensions/uuid-discipline.md  # entity table
+    has_schema: schemas/outside_process_operation.yaml
+    notes: "Vendor conformance document (CoC, process chart, NDT report, thickness/hardness survey) for an outside process operation. Distinct from certification_document (material certs). Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
+
+  - name: process_identification
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype B and C: FAI Form 2 records → [Process Identification]
+      - extensions/quality-flowdowns.md  # FAI form2.line_items[] with spec_type=Process
+    has_schema: null
+    notes: "An entry on AS9102 Form 2 identifying a process used on the part. Links back to process_specification and process_certification. Embedded as a line item in form2 schema; archetypes treat as first-class node."
+
+  - name: process_specification
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/outside_process_operation.yaml  # canonical schema (Phase 2.C)
+      - extensions/outside-processing.md  # prose narrative
+      - reference/composition-archetypes.md  # all archetypes: runs → [Process Specification]
+      - schemas/material.yaml  # material.heat_treatment.spec_primary string reference
+    has_schema: schemas/outside_process_operation.yaml
+    notes: "AMS/MIL/ASTM/NASM process spec as first-class entity. Covers both outside process specs and in-house programming procedures. Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
+
+  - name: purchase_order
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/purchase_order.yaml  # canonical schema (Phase 2.E)
+      - extensions/outside-processing.md  # outside_process_operation.supplier_po uuid reference
+      - extensions/quality-flowdowns.md  # quality_flowdown_plan.subtier_flowdowns[].po_id
+      - schemas/material.yaml  # material_lot.po_reference → purchase_order_line
+    has_schema: schemas/purchase_order.yaml
+    notes: "Generic outbound PO per Decision 1.4 (two-tier). po_kind enum: material | sub_tier | services | opex. sub_tier_purchase_order is an alias with po_kind: sub_tier. Schema: schemas/purchase_order.yaml (Phase 2.E)."
+
+  - name: qif_results_document
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: Form 3 references → [QIF Results Document]
+      - extensions/uuid-discipline.md  # QIF translation survival section
+      - reference/domain-map.md  # Section 4 — Quality (QIF standard)
+    has_schema: null
+    notes: "ISO 23952 QIF results document (external-standard artifact). Not an manufacturer-defined schema; the manufacturer defines the UUID linkage per uuid-discipline.md. Matrix: decide whether to define an implementer-side wrapper entity with file reference, QIF version, and UUID mapping."
+
+  - name: quality_clause
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/quality.yaml  # canonical schema (Phase 2.D)
+      - extensions/quality-flowdowns.md  # prose narrative + standard clause reference table (QA-001 through QA-017)
+      - reference/composition-archetypes.md  # Archetype B and C: flows_down, inherits_clauses edges
+      - reference/domain-map.md  # Section 4 and 5
+    has_schema: schemas/quality.yaml
+    notes: "Reusable quality obligation. category enum; subtier_cascade flag; job-requirement triggers. Schema: schemas/quality.yaml (Phase 2.D)."
+
+  - name: quality_engineer
+    archetypes_used_in: [C]
+    existing_definitions:
+      - schemas/user.yaml  # alias — user with roles[] containing quality_engineer
+      - reference/composition-archetypes.md  # Archetype C: performed_by → [Quality Engineer] on witness inspection
+    has_schema: schemas/user.yaml  # alias — user.roles contains quality_engineer
+    notes: "Alias per Decision 1.8. Canonical form is user with roles[] containing quality_engineer. No standalone schema. Schema: schemas/user.yaml (Phase 2.F)."
+
+  - name: quality_flowdown_plan
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality.yaml  # canonical schema (Phase 2.D)
+      - extensions/quality-flowdowns.md  # prose narrative
+      - reference/domain-map.md  # Section 4
+    has_schema: schemas/quality.yaml
+    notes: "Machine-readable quality addendum for a job. Carries active clauses, derived cert requirements (FAI, CoC, MTR, DFARS, Nadcap), and subtier flowdown records. First-class entity with job_id FK. Schema: schemas/quality.yaml (Phase 2.D)."
+
+  - name: receipt
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/receipt.yaml  # canonical schema (Phase 2.E)
+      - extensions/outside-processing.md  # Return and Receiving workflow section
+      - extensions/material-certs.md  # cert collection at receiving
+    has_schema: schemas/receipt.yaml
+    notes: "Goods-received event at the shop dock. Distinct from shipment (which tracks logistics/transit) — receipt is the event that triggers inventory movement, receiving inspection, and cert collection. One receipt per inbound shipment. Schema: schemas/receipt.yaml (Phase 2.E)."
+
+  - name: routing
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/routing.yaml  # canonical schema (Phase 2.C)
+      - reference/composition-archetypes.md  # all archetypes: produced_via → [Routing]
+      - reference/domain-map.md  # Section 3 (STEP AP238 reference)
+      - extensions/ip-boundary.md  # 'Routing' listed as the manufacturer IP
+    has_schema: schemas/routing.yaml
+    notes: "Process plan template for a part. Contains operation templates (not work_order execution instances). assembly_routing is a distinct subtype. Schema: schemas/routing.yaml (Phase 2.C)."
+
+  - name: sales_order
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/sales_order.yaml  # canonical schema (Phase 2.F)
+      - extensions/quality-flowdowns.md  # quality_clause (customer_id), quality_flowdown_plan.sales_order_id, FAI.sales_order_id
+      - reference/domain-map.md  # Section 6 — Sales and Quoting
+    has_schema: schemas/sales_order.yaml
+    notes: "shop internal acceptance record derived from customer_purchase_order. line_items[] with subject_id/subject_type polymorphic FK. State machine: Draft → Closed. Schema: schemas/sales_order.yaml (Phase 2.F)."
+
+  - name: serial_number
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/job.yaml  # canonical schema (Phase 2.C); state machine added Phase 2.F
+      - reference/composition-archetypes.md  # all archetypes: produces → [Serial Number]
+      - extensions/uuid-discipline.md  # entity table
+      - extensions/quality-flowdowns.md  # NCR.serial_ids, FAI.serial_number_fai_unit
+    has_schema: schemas/job.yaml
+    notes: "Individual physical unit within a job. UUID anchor across QIF SerialNumber and X12 SN1 segments. State machine: Assigned → Scrapped; RMA return path Shipped → Returned → Quarantined. Schema: schemas/job.yaml (Phase 2.C + Phase 2.F state machine)."
+
+  - name: shelf_life_certification
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/certification_document.yaml  # alias — cert_type: ShelfLife
+      - extensions/material-certs.md  # certification_document cert_type ShelfLife
+      - extensions/quality-flowdowns.md  # QA-016 Shelf Life clause
+      - schemas/material.yaml  # material_lot.shelf_life_expiration date
+    has_schema: schemas/certification_document.yaml  # alias — cert_type: ShelfLife
+    notes: "Alias of certification_document (cert_type: ShelfLife) per Decision 1.6. No standalone schema."
+
+  - name: shipment
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/shipment.yaml  # canonical schema (Phase 2.E)
+      - reference/composition-archetypes.md  # all archetypes: shipped_under → [Shipment]
+      - extensions/outside-processing.md  # ships_out_via references outbound shipments to suppliers
+      - extensions/ip-boundary.md  # X12 856 section
+    has_schema: schemas/shipment.yaml
+    notes: "Direction-discriminated entity per Decision 1.5. X12 856 source for outbound. Two direction-specific state machines. Schema: schemas/shipment.yaml (Phase 2.E)."
+
+  - name: shipment_inbound
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/shipment.yaml  # alias — direction: inbound
+      - reference/composition-archetypes.md  # Archetype B: returns_with → [Shipment Inbound] from outside processor
+    has_schema: schemas/shipment.yaml  # alias — direction: inbound
+    notes: "Alias per Decision 1.5. Canonical form is shipment with direction: inbound. No standalone schemas/shipment_inbound.yaml."
+
+  - name: spec_body
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: has_spec_body → [Spec Body]
+      - schemas/material.yaml  # material.spec_body enum (SAE, ASTM, MIL, ASME, OEM, Internal)
+      - extensions/material-certs.md  # material_specification.spec_body enum
+      - extensions/outside-processing.md  # process_specification.spec_body enum
+    has_schema: null
+    notes: "Enum per Decision 1.7. Canonical values: SAE | ASTM | MIL | ASME | NASM | OEM | Internal (NASM added — was missing from schemas/material.yaml enum). Not a first-class entity. Archetype display node [Spec Body] is an enum field reference."
+
+  - name: sub_tier_purchase_order
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/purchase_order.yaml  # alias — po_kind: sub_tier
+      - reference/composition-archetypes.md  # Archetype B: issued_via → [Sub-Tier Purchase Order]
+      - extensions/outside-processing.md  # outside_process_operation.supplier_po, purchase_order_number
+      - extensions/quality-flowdowns.md  # subtier_flowdowns block
+    has_schema: schemas/purchase_order.yaml  # alias — po_kind: sub_tier
+    notes: "Alias per Decision 1.4. Canonical form is purchase_order with po_kind: sub_tier. No standalone schema."
+
+  - name: supplier
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/supplier.yaml  # canonical schema (Phase 2.E)
+      - reference/composition-archetypes.md  # Archetype B: has_supplier → [Supplier]
+      - extensions/outside-processing.md  # prose narrative
+      - extensions/supplier-approval.md  # approved_supplier_list_entry.supplier_id → supplier.id
+      - schemas/material.yaml  # material_lot.supplier ref target
+    has_schema: schemas/supplier.yaml
+    notes: "Contact/address/capability record per Decision 1.3 rename (vendor → supplier). Structured approval data lives in approved_supplier_list_entry. Schema: schemas/supplier.yaml (Phase 2.E)."
+
+  - name: supplier_approval
+    archetypes_used_in: [B]
+    existing_definitions:
+      - schemas/approved_supplier_list_entry.yaml  # deprecated alias — canonical is approved_supplier_list_entry
+      - reference/composition-archetypes.md  # Archetype B: approved_via → [Supplier Approval]
+      - extensions/supplier-approval.md  # approved_supplier_list_entry is the structured record
+    has_schema: schemas/approved_supplier_list_entry.yaml  # deprecated alias
+    notes: "Deprecated alias per Decision 1.3. Canonical entity is approved_supplier_list_entry. Archetype B display name [Supplier Approval] retained. No standalone schema."
+
+  - name: tool_gauge
+    archetypes_used_in: none
+    existing_definitions:
+      - extensions/uuid-discipline.md  # entity table line 29; UUID minting rule line 55
+    has_schema: null
+    notes: >
+      Covers cutting tools and measurement gauges as UUID-bearing resources
+      (tool crib, calibration records, MTConnect tool reference, QIF resource).
+      Not exercised by any archetype; candidate for future archetype coverage
+      or for consolidation with work_center under a broader resource schema.
+      Matrix triage candidate.
+
+  - name: torque_readings_record
+    archetypes_used_in: [C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype C: records → [Torque Readings Record]
+    has_schema: null
+    notes: "Record of actual torque values applied during assembly bolt-up, one reading per fastener. No prior schema or narrative. Candidate for assembly extension."
+
+  - name: torque_sequence
+    archetypes_used_in: [C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype C: has_torque_sequence edge
+    has_schema: null
+    notes: "Ordered pattern for applying torque (cross-pattern, star pattern, two-pass, three-pass). No prior schema. Candidate for assembly extension. May collapse into torque_specification."
+
+  - name: torque_specification
+    archetypes_used_in: [C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype C: has_torque_spec edge; references AS5272
+    has_schema: null
+    notes: "Target torque value + tolerance + lubrication condition + reference spec (e.g., AS5272 Table IV-A). No prior schema. Candidate for assembly extension."
+
+  - name: uns_number
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: references → [UNS Number]
+      - schemas/material.yaml  # material.uns_number, material_specification.uns_number
+      - extensions/material-certs.md  # material_specification.uns_number
+    has_schema: null
+    notes: "Validated string attribute per Decision 1.7. Pattern: ^[A-Z]\\d{5}$. Alloy-family membership and spec cross-references live on the material entity (which has alloy_family and spec_references[] already). Not a first-class entity. Archetype display node [UNS Number] is a string field reference on material and material_specification."
+
+  - name: user
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/user.yaml  # canonical schema (Phase 2.F)
+      - extensions/quality-flowdowns.md  # NCR.inspector_id → user.id
+      - extensions/uuid-discipline.md  # entity table implicit (actor on all events)
+    has_schema: schemas/user.yaml
+    notes: "Canonical entity per Decision 1.8. roles[] enum includes quality_engineer, machinist, inspector, buyer, etc. citizenship_status for ITAR access control; training_records[] for quality signatory eligibility. Schema: schemas/user.yaml (Phase 2.F)."
+
+  - name: usml_category
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype B: USML Category VIII; Archetype C: Category XV
+      - extensions/ip-boundary.md  # ITAR and USML mention
+    has_schema: null
+    notes: "US Munitions List category (22 CFR 121.1). Reference data — 21 categories. No schema; archetype trees treat as a node under export_classification. Matrix may keep as a reference enum."
+
+  - name: supplier_qualification_event
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/supplier_qualification_event.yaml  # canonical schema (Phase 2.E)
+      - extensions/supplier-approval.md  # prose narrative
+    has_schema: schemas/supplier_qualification_event.yaml
+    notes: "Renamed from vendor_qualification_event per Decision 1.3. Audit-trail entity for supplier approval lifecycle events (initial approval, annual review, Nadcap update, suspension, reinstatement). Schema: schemas/supplier_qualification_event.yaml (Phase 2.E)."
+
+  - name: witness_inspection
+    archetypes_used_in: [C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # Archetype C: witnessed_by → [Witness Inspection]
+    has_schema: null
+    notes: "Quality-engineer-witnessed inspection event for assembly bolt-up. No prior schema. performed_by targets user with quality_engineer role guard per Decision 1.8. Candidate for assembly extension. Schema authoring scheduled in Routing & Operations cluster (Phase 2.C)."
+
+  - name: work_center
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - schemas/routing.yaml  # canonical schema (Phase 2.C)
+      - reference/composition-archetypes.md  # all archetypes: performed_at → [Work Center]
+      - reference/domain-map.md  # implied in Section 3 — Manufacturing
+    has_schema: schemas/routing.yaml
+    notes: "Named machine or station. MTConnect device ID links machine telemetry to the production system routing data. Schema: schemas/routing.yaml (Phase 2.C)."
+
+  - name: work_order
+    archetypes_used_in: [B, C]
+    existing_definitions:
+      - schemas/job.yaml  # canonical schema (Phase 2.C)
+      - extensions/uuid-discipline.md  # entity table: work_order UUID carried in MTConnect WorkOrder OperationId
+      - reference/domain-map.md  # Section 3 — Manufacturing
+    has_schema: schemas/job.yaml
+    notes: "Execution instance of a routing operation on a specific job. operation defines WHAT/WHERE; work_order records WHEN/WHO/how long. work_order UUID carried in MTConnect WorkOrder OperationId. machine_event edges live on work_order (execution context), not on operation (template). Schema: schemas/job.yaml (Phase 2.C)."
+
+  - name: x12_856_asn
+    archetypes_used_in: [A, B, C]
+    existing_definitions:
+      - reference/composition-archetypes.md  # all archetypes: carries_ref → [X12 856 ASN]
+      - extensions/uuid-discipline.md  # X12 REF*ZZ segment carries the production system Job UUID
+      - reference/domain-map.md  # Section 5 — Supply Chain
+      - extensions/ip-boundary.md  # X12 856 transaction boundaries
+    has_schema: null
+    notes: "X12 EDI 856 Advance Shipment Notice. External-standard artifact (ASC X12). the manufacturer defines the REF*ZZ UUID-carrying extension in uuid-discipline.md, not the full transaction schema."

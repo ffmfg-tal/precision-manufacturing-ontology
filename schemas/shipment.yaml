@@ -1,0 +1,264 @@
+# schemas/shipment.yaml
+#
+# Layer-1 coverage:
+#   X12 856 (ASN): The Advance Ship Notice transmitted to customers when the manufacturer ships.
+#   The X12 856 carries shipment details (carrier, tracking, ship date, serial/lot numbers,
+#   production job UUID in REF*ZZ). This schema is the persistent production system record that the
+#   856 is generated from; it also covers inbound and return shipments that have no 856 analog.
+#
+# Layer-2 (Manufacturer Extension): Unified shipment entity with a direction discriminator per
+#   Decision 1.5 (two-entity problem resolved: outbound and inbound share the same schema
+#   shape; direction is an attribute). shipment_inbound is an alias for direction: inbound.
+#   A cert package accompanies outbound shipments — this entity links to it. Inbound
+#   shipments (vendor returns from outside processing, material receipts) link to receipt records.
+#
+# State machines: Two direction-discriminated state machines in one entity.
+#   Outbound: Planned → Packed → In_Transit → Delivered → Delivery_Confirmed | Exception
+#   Inbound:  Expected → In_Transit → Received → Inspected_Pass | Inspected_Fail
+#   Terminal: Delivery_Confirmed, Inspected_Pass, Inspected_Fail, Exception
+#
+# Prose source: extensions/ip-boundary.md (X12 856 section: what leaves the shop),
+#               extensions/outside-processing.md (return shipping from vendor)
+# Cluster: Supply Chain (Phase 2.E)
+# Sibling schemas: schemas/receipt.yaml, schemas/customer_purchase_order.yaml
+
+entities:
+
+  shipment:
+    description: >
+      A physical shipment of goods — outbound to a customer or sub-tier vendor, inbound
+      from a vendor or return from a customer, or return to/from a supplier. Direction
+      discriminator per Decision 1.5. The X12 856 (ASN) is generated from outbound
+      shipments. shipment_inbound is an alias for shipment with direction: inbound.
+      Outbound shipments carry a cert package. Inbound shipments link to receipt records
+      which trigger inventory and inspection events.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when shipment record is created in the production system
+      direction:
+        type: enum
+        required: true
+        values: [outbound, inbound, return_to_supplier, return_from_customer]
+        description: >
+          outbound = the manufacturer ships to customer (covered by X12 856).
+          inbound = supplier ships to the manufacturer (material receipt, outside process return).
+          return_to_supplier = the manufacturer returns goods to supplier (reject, warranty).
+          return_from_customer = customer returns goods to the manufacturer (warranty, NCR).
+      job_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → job.id — the job whose parts are in this shipment (outbound/inbound to outside process)"
+      serial_ids:
+        type: array
+        required: false
+        description: "FK[] → serial_number.id — individual serialized units in this shipment"
+        items:
+          type: uuid
+      lot_ids:
+        type: array
+        required: false
+        description: "FK[] → material_lot.id — material lots in this shipment (inbound only)"
+        items:
+          type: uuid
+      customer_po_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → customer_purchase_order.id — the customer PO fulfilled by this outbound shipment"
+      purchase_order_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → purchase_order.id — the supplier PO associated with this inbound shipment"
+      # Carrier and Logistics
+      carrier:
+        type: string
+        required: false
+        description: "Carrier name (e.g., 'FedEx', 'UPS', 'DHL', 'Truck')"
+      carrier_account:
+        type: string
+        required: false
+        description: the manufacturer or customer carrier account number used for billing
+      tracking_number:
+        type: string
+        required: false
+        description: Carrier tracking number or PRO number
+      ship_date:
+        type: date
+        required: false
+        description: Date goods were handed to carrier (actual)
+      estimated_delivery_date:
+        type: date
+        required: false
+        description: Carrier's estimated delivery date
+      actual_delivery_date:
+        type: date
+        required: false
+        description: Date goods were confirmed delivered (populated from carrier confirmation or receipt)
+      # Addresses
+      origin_address:
+        type: string
+        required: false
+        description: Ship-from address
+      destination_address:
+        type: string
+        required: false
+        description: Ship-to address
+      # EDI reference
+      x12_856_ref:
+        type: string
+        required: false
+        description: X12 856 ASN transaction reference (outbound only)
+      # Cert package (outbound to customer)
+      cert_package_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → certification_package.id — the cert package accompanying an outbound shipment"
+      # Quantities
+      packing_list_reference:
+        type: string
+        required: false
+        description: the manufacturer packing list document number
+      quantity_shipped:
+        type: number
+        required: false
+      unit_of_measure:
+        type: string
+        required: false
+        examples: ["EA", "LBS", "FT"]
+      # Status (direction-discriminated state machine)
+      status:
+        type: enum
+        required: true
+        values:
+          # Outbound states
+          - Planned
+          - Packed
+          - In_Transit
+          - Delivered
+          - Delivery_Confirmed
+          - Exception
+          # Inbound states
+          - Expected
+          - Received
+          - Inspected_Pass
+          - Inspected_Fail
+        description: Current lifecycle state — valid values depend on direction
+      exception_description:
+        type: string
+        required: false
+        description: Description of exception (lost, damaged, refused, customs hold)
+
+    state_machine:
+      description: >
+        Two direction-discriminated state machines within one entity.
+        Terminal states: Delivery_Confirmed, Inspected_Pass, Inspected_Fail, Exception.
+
+      outbound_states:
+        description: >
+          For direction = outbound | return_to_supplier.
+          Driven by packing activity, carrier events, and customer/supplier receipt confirmation.
+        initial_state: Planned
+        terminal_states: [Delivery_Confirmed, Exception]
+        states:
+          Planned:
+            description: Shipment planned in the production system; packing list not yet created; no carrier assigned
+          Packed:
+            description: Parts packed; packing list signed; carrier scheduled; awaiting pickup
+          In_Transit:
+            description: Handed to carrier; tracking number available; en route to destination
+          Delivered:
+            description: Carrier shows delivery confirmation; awaiting explicit customer/supplier acknowledgment
+          Delivery_Confirmed:
+            description: Customer or supplier has confirmed receipt; cert package accepted (outbound)
+          Exception:
+            description: Shipment lost, damaged in transit, refused, or held at customs
+        transitions:
+          - from: Planned
+            to: Packed
+            trigger: Packing list created and signed; parts staged for pickup
+          - from: Packed
+            to: In_Transit
+            trigger: Carrier picks up; tracking number populated
+          - from: In_Transit
+            to: Delivered
+            trigger: Carrier reports delivery confirmation
+          - from: In_Transit
+            to: Exception
+            trigger: Carrier reports loss, damage, or customs hold
+          - from: Delivered
+            to: Delivery_Confirmed
+            trigger: Customer or supplier confirms receipt of goods and cert package
+          - from: Delivered
+            to: Exception
+            trigger: Recipient reports non-receipt, damage, or shortage
+
+      inbound_states:
+        description: >
+          For direction = inbound | return_from_customer.
+          Driven by expected delivery, physical receipt at the shop dock, and receiving inspection.
+        initial_state: Expected
+        terminal_states: [Inspected_Pass, Inspected_Fail]
+        states:
+          Expected:
+            description: Shipment expected (PO acknowledged; vendor confirmed ship date); not yet arrived
+          In_Transit:
+            description: Carrier tracking shows shipment en route to the manufacturer
+          Received:
+            description: Physically received at the shop dock; receiving record created; inspection pending
+          Inspected_Pass:
+            description: Receiving inspection complete; goods accepted; inventory or job updated
+          Inspected_Fail:
+            description: Receiving inspection failed; NCR initiated; goods quarantined
+        transitions:
+          - from: Expected
+            to: In_Transit
+            trigger: Supplier provides tracking number
+          - from: Expected
+            to: Received
+            trigger: Goods arrive at the shop dock without prior tracking update
+          - from: In_Transit
+            to: Received
+            trigger: Goods arrive at the shop dock; receiving record created
+          - from: Received
+            to: Inspected_Pass
+            trigger: Receiving inspection passes (certs verified, qty confirmed, visual inspection)
+          - from: Received
+            to: Inspected_Fail
+            trigger: Receiving inspection fails; NCR initiated
+
+    relationships:
+      fulfills_customer_po:
+        target: customer_purchase_order
+        cardinality: many-to-one
+        nullable: true
+        description: The customer PO this outbound shipment fulfills (outbound only)
+      against_purchase_order:
+        target: purchase_order
+        cardinality: many-to-one
+        nullable: true
+        description: The supplier PO associated with this inbound shipment
+      ships_serials:
+        target: serial_number
+        cardinality: one-to-many
+        nullable: true
+        description: Serialized units in this shipment
+      ships_lots:
+        target: material_lot
+        cardinality: one-to-many
+        nullable: true
+        description: Material lots in this shipment (inbound only)
+      ships_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+        description: The job whose parts are being shipped
+      has_receipt:
+        target: receipt
+        cardinality: one-to-many
+        nullable: true
+        description: Receiving record(s) for this inbound shipment
