@@ -10,7 +10,7 @@ Cross-reference between this ontology and [System Name]. Starting template for d
 
 ## Domain Mapping
 
-Keep this structure in sync with `../reference/domain-map.md` — eight domains.
+Keep this structure in sync with `../reference/domain-map.md` — twelve domains.
 
 ### Materials
 

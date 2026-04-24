@@ -256,6 +256,26 @@ Per Decision 1.9, `item` is removed from the canonical Layer 2 ontology. It is a
 
 ---
 
+## Stale Machine-Readable Files — Pending Update
+
+Two machine-readable source files were not updated during Phase 2 or InspectAI additions. They are intentionally deferred (significant authoring effort) but flagged here so the next deepening pass knows they need work. README.md notes both as stale.
+
+### `reference/entity-inventory.yaml`
+
+**Current state:** 82 entries (original). **True count:** 123.
+**Missing:** 41 entries — 35 Phase 2 entities (Domains 9–12, Assembly Hardware, Operator Qualification) plus 6 InspectAI-derived entities (characteristic, measurement_result, fmea_item, control_plan_item, spc_result, ppap_submission).
+**Impact:** entity-matrix.md Sources line still references "(82 entities)" — updated to note staleness. INDEX.md and entity-matrix.md are authoritative; entity-inventory.yaml is a secondary source.
+**Effort:** Each entry requires `name`, `archetypes_used_in`, `existing_definitions[]`, `has_schema`, and `notes`. ~41 × 5 fields.
+
+### `reference/relationship-graph.yaml`
+
+**Current state:** 137 edges (pre-Phase-2). **True count:** unknown; significantly higher.
+**Missing:** Edges for all 41 new entities. Each entity averages 3–5 outgoing edges based on schema relationships.
+**Impact:** README.md edge count updated to note staleness. The graph is used for cross-entity navigation and dependency analysis; stale edges don't break navigation but reduce coverage.
+**Effort:** Systematic pass through all 41 new schema files' `relationships:` blocks, converting each to a graph edge in the YAML format established in the existing file.
+
+---
+
 ## Open Questions — Carry Forward
 
 | ID | Entity | Question | Status |

@@ -43,9 +43,9 @@ The Layer 2 Manufacturer data model is the novel contribution of this repo. Laye
 
 ---
 
-## Eight Domains
+## Operational Domains
 
-The digital thread touches eight operational domains. For each domain:
+The digital thread touches twelve operational domains plus cross-domain extensions. For each domain:
 - **Standard coverage** — which existing standard addresses it
 - **manufacturer-layer gap** — what the standard doesn't handle at the manufacturer layer
 - **manufacturer extension** — how this repo fills the gap

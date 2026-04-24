@@ -32,7 +32,7 @@ entities:
       data. Implements the Data Classification Matrix from extensions/ip-boundary.md.
       Entity instances (jobs, drawings, cert packages, NC programs) reference a
       data_classification to inherit their storage, transmission, and access rules.
-      Provides a machine-readable governance layer over all eight operational domains.
+      Provides a machine-readable governance layer over all twelve operational domains.
     attributes:
       id:
         type: uuid

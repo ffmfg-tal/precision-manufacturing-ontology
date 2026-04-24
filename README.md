@@ -27,13 +27,13 @@ The ontology is measured by composition, not by domain polish. Success means: an
 - [`reference/entity-matrix.md`](reference/entity-matrix.md) — every entity × every completeness dimension, classified.
 
 **The canon** (Layer 2):
-- [`reference/domain-map.md`](reference/domain-map.md) — the eight domains and their manufacturer-layer gaps.
-- [`extensions/`](extensions/) — per-gap specifications (material certs, outside processing, quality flowdowns, supplier approval, IP boundary, UUID discipline).
+- [`reference/domain-map.md`](reference/domain-map.md) — twelve operational domains plus cross-domain extensions and their manufacturer-layer gaps.
+- [`extensions/`](extensions/) — per-gap specifications (material certs, outside processing, quality flowdowns, supplier approval, IP boundary, UUID discipline, process engineering/NRE, tool room, packaging, change management, inspection/calibration).
 - [`schemas/`](schemas/) — machine-readable entity definitions (YAML).
 
 **References:**
 - [`standards/`](standards/) — Layer 1 briefs.
-- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (137 edges).
+- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (stale at 137 edges; pending update for Phase 2 + InspectAI entities).
 - [`implementations/`](implementations/) — reference mappings to Carbon, Fulcrum, and a template for future systems.
 - [`reference/carbon-novelty-2026-04.md`](reference/carbon-novelty-2026-04.md) — latest Carbon scan findings.
 
@@ -43,7 +43,7 @@ A new contributor — human or agent — can reach any entity in ≤2 hops from 
 
 ## Status
 
-Active. Comprehensive coherence and deepening passes completed 2026-04-23. Schema coverage: 73 of 82 entities fully specified; remaining 9 are intentional (external standards not authored here, string/enum type decisions). See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
+Active. Phase 2 (12 domains, 117 entities) completed 2026-04-24; InspectAI-derived quality entities added same day. Schema coverage: 94 of 123 entities fully specified; remaining are intentional (external standards not authored here, string/enum type decisions, aliases). Two machine-readable reference files stale pending update: `reference/entity-inventory.yaml` (still 82 entries) and `reference/relationship-graph.yaml` (still 137 edges). See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
 
 ## License
 

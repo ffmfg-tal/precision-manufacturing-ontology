@@ -16,7 +16,7 @@ Fulcrum Pro is one reference implementation among several; the canonical ontolog
 
 ## Domain Mapping
 
-Keep this structure in sync with `../reference/domain-map.md` — eight domains. Compliance and Governance is covered inside the Sales and Supply Chain sections because Fulcrum has no dedicated compliance module.
+Keep this structure in sync with `../reference/domain-map.md` — twelve domains (Domains 1–8 original; Domains 9–12 added 2026-04-24: Process Engineering/NRE, Tool Room, Packaging, Change Management). Compliance and Governance is covered inside the Sales and Supply Chain sections because Fulcrum has no dedicated compliance module. Domains 9–12 are not yet mapped in this file — Fulcrum coverage for these domains is minimal.
 
 ### Materials
 
