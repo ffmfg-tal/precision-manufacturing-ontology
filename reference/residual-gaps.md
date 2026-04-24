@@ -256,23 +256,19 @@ Per Decision 1.9, `item` is removed from the canonical Layer 2 ontology. It is a
 
 ---
 
-## Stale Machine-Readable Files — Pending Update
+## Stale Machine-Readable Files — RESOLVED 2026-04-24
 
-Two machine-readable source files were not updated during Phase 2 or InspectAI additions. They are intentionally deferred (significant authoring effort) but flagged here so the next deepening pass knows they need work. README.md notes both as stale.
+Both machine-readable source files updated 2026-04-24.
 
 ### `reference/entity-inventory.yaml`
 
-**Current state:** 82 entries (original). **True count:** 123.
-**Missing:** 41 entries — 35 Phase 2 entities (Domains 9–12, Assembly Hardware, Operator Qualification) plus 6 InspectAI-derived entities (characteristic, measurement_result, fmea_item, control_plan_item, spc_result, ppap_submission).
-**Impact:** entity-matrix.md Sources line still references "(82 entities)" — updated to note staleness. INDEX.md and entity-matrix.md are authoritative; entity-inventory.yaml is a secondary source.
-**Effort:** Each entry requires `name`, `archetypes_used_in`, `existing_definitions[]`, `has_schema`, and `notes`. ~41 × 5 fields.
+**Resolved.** Updated from 82 to 117 entries. Phase 2 added 29 new entity entries (Domains 9–12, Assembly Hardware, Operator Qualification); InspectAI added 6 (characteristic, measurement_result, fmea_item, control_plan_item, spc_result, ppap_submission). Nine stale `has_schema: null` entries corrected: calibration_record, inspection_event, key_characteristic, tool_gauge (→ schemas/inspection.yaml); kit_record, torque_readings_record, torque_sequence, torque_specification, witness_inspection (→ schemas/assembly.yaml).
+
+**Note on count:** True entity count is 117 (82 original + 29 Phase 2 + 6 InspectAI), not 123 as temporarily stated in prior session notes. The 35-entity Phase 2 figure was inflated; the actual new-entity count is 29 (the other 6 were entities already in the original 82 that received schemas in Phase 2).
 
 ### `reference/relationship-graph.yaml`
 
-**Current state:** 137 edges (pre-Phase-2). **True count:** unknown; significantly higher.
-**Missing:** Edges for all 41 new entities. Each entity averages 3–5 outgoing edges based on schema relationships.
-**Impact:** README.md edge count updated to note staleness. The graph is used for cross-entity navigation and dependency analysis; stale edges don't break navigation but reduce coverage.
-**Effort:** Systematic pass through all 41 new schema files' `relationships:` blocks, converting each to a graph edge in the YAML format established in the existing file.
+**Resolved.** Updated from 137 to 355 edges (+218). Edges extracted from all Phase 2 and InspectAI schema `relationships:` blocks across 11 schema files. Ten new sections added covering: Process Engineering/NRE, Tool Room, Packaging, Change Management, Assembly Hardware, Operator Qualification, Assembly Phase 2 entities, Inspection Phase 2 entities, AIAG Quality Tools, and Dimensional Inspection (InspectAI).
 
 ---
 

@@ -1,8 +1,15 @@
 # Relationship graph for the precision-manufacturing-ontology
 # Generated: 2026-04-22 (coherence pass, Task 8)
+# Updated: 2026-04-24 (Phase 2 + InspectAI additions — 41 new entities;
+#   edges extracted from schemas/process_engineering.yaml, tool_room.yaml,
+#   packaging.yaml, change_management.yaml, assembly_hardware.yaml,
+#   operator_qualification.yaml, assembly.yaml, inspection.yaml,
+#   characteristic.yaml, measurement_result.yaml, quality_tools.yaml)
 #
 # Machine-readable enumeration of every edge in the ontology. Consumed by
 # agent traversal, graph visualization, and downstream deepening tasks.
+#
+# Total edges: 355 (137 original + 218 added 2026-04-24)
 #
 # Extraction sources (see 'source' field values):
 #   - archetype_a / archetype_b / archetype_c: edges derived from the
@@ -12,6 +19,10 @@
 #     extensions/material-certs.md, outside-processing.md, quality-flowdowns.md,
 #     supplier-approval.md, uuid-discipline.md, ip-boundary.md
 #   - reference/domain-map.md: edges explicit in the domain-map prose
+#   - schemas/process_engineering.yaml, tool_room.yaml, packaging.yaml,
+#     change_management.yaml, assembly_hardware.yaml, operator_qualification.yaml,
+#     assembly.yaml, inspection.yaml, characteristic.yaml, measurement_result.yaml,
+#     quality_tools.yaml: Phase 2 + InspectAI entity relationship blocks
 #
 # Deduplication: identical (from, to, verb) triples are merged; their
 # sources are unioned. Inverse edges (e.g., `certifies` vs `certified_by`)
@@ -1411,3 +1422,1029 @@ relationships:
     verb: carries_serial_ref
     cardinality: one-to-many
     source: [extensions/uuid-discipline.md]
+
+  # ============================================================
+  # PROCESS ENGINEERING / NRE
+  # ============================================================
+
+  - from: nre_package
+    to: part
+    verb: covers
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: part_specification
+    verb: locks_spec
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: routing
+    verb: locks_routing
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: user
+    verb: approved_by
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: nc_program
+    verb: contains_nc_program
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: cam_file
+    verb: contains_cam_file
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: setup_sheet
+    verb: contains_setup_sheet
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: cmm_program
+    verb: contains_cmm_program
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: inspection_plan
+    verb: contains_inspection_plan
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nre_package
+    to: tooling_list
+    verb: contains_tooling_list
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: nc_program
+    to: operation
+    verb: executes
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nc_program
+    to: work_center
+    verb: runs_on
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nc_program
+    to: cam_file
+    verb: posted_from
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: nc_program
+    to: prove_out_record
+    verb: proven_by
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: cam_file
+    to: operation
+    verb: programs
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: cam_file
+    to: user
+    verb: authored_by
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: cam_file
+    to: nc_program
+    verb: posts_to
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: setup_sheet
+    to: operation
+    verb: covers
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: setup_sheet
+    to: work_center
+    verb: applies_to
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: setup_sheet
+    to: part
+    verb: shows_fixture
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+    description: Primary fixture shown on the setup sheet (part_kind = fixture)
+
+  - from: cmm_program
+    to: operation
+    verb: executes
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: cmm_program
+    to: work_center
+    verb: runs_on
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: inspection_plan
+    to: part
+    verb: covers
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: prove_out_record
+    to: nc_program
+    verb: proves
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: prove_out_record
+    to: work_center
+    verb: performed_on
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: prove_out_record
+    to: user
+    verb: run_by
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+    description: Operator who ran the prove-out
+
+  - from: prove_out_record
+    to: user
+    verb: signed_off_by
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+    description: Engineer or quality approver who authorized release
+
+  - from: print_file
+    to: nre_package
+    verb: belongs_to
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: print_file
+    to: part_specification
+    verb: controlled_copy_of
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: tooling_list
+    to: operation
+    verb: supports
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: tooling_list
+    to: nc_program
+    verb: authored_for
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: tooling_list
+    to: tooling_list_line
+    verb: has_line
+    cardinality: one-to-many
+    source: [schemas/process_engineering.yaml]
+
+  - from: tooling_list_line
+    to: tooling_list
+    verb: belongs_to
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: tooling_list_line
+    to: tool_assembly_definition
+    verb: requires
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: fixture_use
+    to: operation
+    verb: links_to
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+
+  - from: fixture_use
+    to: part
+    verb: uses_fixture
+    cardinality: many-to-one
+    source: [schemas/process_engineering.yaml]
+    description: Fixture part (part_kind = fixture) used at this operation
+
+  # ============================================================
+  # TOOL ROOM
+  # ============================================================
+
+  - from: cutter_definition
+    to: tool_assembly_definition
+    verb: used_in
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: cutter_definition
+    to: tool_life_record
+    verb: tracked_by
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: holder_definition
+    to: tool_assembly_definition
+    verb: used_in
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_assembly_definition
+    to: cutter_definition
+    verb: specifies_cutter
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_assembly_definition
+    to: holder_definition
+    verb: specifies_holder
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_assembly_definition
+    to: tool_preset
+    verb: has_preset
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_assembly_definition
+    to: tool_pocket_requirement
+    verb: required_in
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_preset
+    to: tool_assembly_definition
+    verb: satisfies
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_preset
+    to: part
+    verb: uses_holder
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+    description: Serialized holder part (part_kind = fixture) used in this assembly
+
+  - from: tool_preset
+    to: tool_gauge
+    verb: measured_with
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+    description: Presetter used for measurement
+
+  - from: tool_preset
+    to: user
+    verb: measured_by
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_preset
+    to: tool_pocket_assignment
+    verb: used_in
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_pocket_requirement
+    to: nc_program
+    verb: belongs_to
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_pocket_requirement
+    to: tool_assembly_definition
+    verb: requires
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_pocket_assignment
+    to: work_order
+    verb: belongs_to
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_pocket_assignment
+    to: tool_preset
+    verb: uses
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_pocket_assignment
+    to: user
+    verb: loaded_by
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_room_allocation
+    to: part
+    verb: allocates
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+    description: Fixture or holder part being allocated (part_kind = fixture)
+
+  - from: tool_room_allocation
+    to: job
+    verb: allocated_for
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_room_allocation
+    to: operation
+    verb: for_operation
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_room_allocation
+    to: user
+    verb: checked_out_by
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_maintenance_event
+    to: part
+    verb: services
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+    description: Fixture or holder part; populated when asset_type = Fixture or Holder
+
+  - from: tool_maintenance_event
+    to: tool_gauge
+    verb: services_gauge
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+    description: Calibrated instrument; populated when asset_type = Gauge
+
+  - from: tool_maintenance_event
+    to: user
+    verb: performed_by
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_life_record
+    to: cutter_definition
+    verb: tracks
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_life_record
+    to: tool_assembly_definition
+    verb: run_in_context_of
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_life_record
+    to: job
+    verb: incurred_on
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  - from: tool_life_record
+    to: work_order
+    verb: incurred_on
+    cardinality: many-to-one
+    source: [schemas/tool_room.yaml]
+
+  # ============================================================
+  # PACKAGING
+  # ============================================================
+
+  - from: packaging_specification
+    to: part
+    verb: governs
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+    description: Part this spec governs (when subject_type = part)
+
+  - from: packaging_specification
+    to: assembly
+    verb: governs
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+    description: Assembly this spec governs (when subject_type = assembly)
+
+  - from: packaging_specification
+    to: user
+    verb: approved_by
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packaging_specification
+    to: packing_record
+    verb: executed_by
+    cardinality: one-to-many
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: shipment
+    verb: supports
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: packaging_specification
+    verb: governed_by
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: part
+    verb: packages
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+    description: Part packaged (when subject_type = part)
+
+  - from: packing_record
+    to: assembly
+    verb: packages
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+    description: Assembly packaged (when subject_type = assembly)
+
+  - from: packing_record
+    to: serial_number
+    verb: packages_serial
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: material_lot
+    verb: packages_lot
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: user
+    verb: packed_by
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: user
+    verb: inspected_by
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packing_record
+    to: packaging_item
+    verb: has_item
+    cardinality: one-to-many
+    source: [schemas/packaging.yaml]
+
+  - from: packaging_item
+    to: packing_record
+    verb: belongs_to
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+
+  - from: packaging_item
+    to: part
+    verb: references_part
+    cardinality: many-to-one
+    source: [schemas/packaging.yaml]
+    description: Manufactured packaging insert or part-number-traceable packaging component
+
+  # ============================================================
+  # CHANGE MANAGEMENT
+  # ============================================================
+
+  - from: engineering_change_notice
+    to: user
+    verb: initiated_by
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: engineering_change_notice
+    to: user
+    verb: approved_by
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: engineering_change_notice
+    to: part
+    verb: affects
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: engineering_change_notice
+    to: part_specification
+    verb: supersedes
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+    description: Old drawing revision being superseded
+
+  - from: engineering_change_notice
+    to: part_specification
+    verb: introduces
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+    description: New drawing revision introduced by this change
+
+  - from: engineering_change_notice
+    to: routing
+    verb: obsoletes
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: engineering_change_notice
+    to: routing
+    verb: introduces
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+    description: New routing version introduced by this change
+
+  - from: engineering_change_notice
+    to: customer_approval
+    verb: requires
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: part
+    verb: applies_to
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: part_specification
+    verb: scoped_to
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: serial_number
+    verb: covers_serial
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: material_lot
+    verb: covers_lot
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: nonconformance_report
+    verb: references
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: user
+    verb: initiated_by
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  - from: deviation_waiver
+    to: customer
+    verb: authorized_by
+    cardinality: many-to-one
+    source: [schemas/change_management.yaml]
+
+  # ============================================================
+  # ASSEMBLY HARDWARE
+  # ============================================================
+
+  - from: insert_installation_record
+    to: assembly_operation
+    verb: documents
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: insert_installation_record
+    to: job
+    verb: performed_on
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: insert_installation_record
+    to: part
+    verb: installs_into
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+    description: Parent part receiving the inserts
+
+  - from: insert_installation_record
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: insert_installation_record
+    to: part
+    verb: installs
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+    description: Insert part being installed (part_kind = insert)
+
+  - from: insert_installation_record
+    to: user
+    verb: installed_by
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: insert_installation_record
+    to: user
+    verb: inspected_by
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: press_fit_record
+    to: assembly_operation
+    verb: documents
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: press_fit_record
+    to: job
+    verb: performed_on
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: press_fit_record
+    to: part
+    verb: presses_into
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+    description: Parent part receiving the pressed component
+
+  - from: press_fit_record
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: press_fit_record
+    to: part
+    verb: presses
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+    description: Pin, bushing, or bearing being pressed
+
+  - from: press_fit_record
+    to: user
+    verb: installed_by
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  - from: press_fit_record
+    to: user
+    verb: inspected_by
+    cardinality: many-to-one
+    source: [schemas/assembly_hardware.yaml]
+
+  # ============================================================
+  # OPERATOR QUALIFICATION
+  # ============================================================
+
+  - from: operator_qualification
+    to: user
+    verb: held_by
+    cardinality: many-to-one
+    source: [schemas/operator_qualification.yaml]
+    description: Operator holding this qualification
+
+  - from: operator_qualification
+    to: process_specification
+    verb: qualifies_for
+    cardinality: many-to-one
+    source: [schemas/operator_qualification.yaml]
+    description: Process specification the operator is qualified to run
+
+  - from: operator_qualification
+    to: work_center
+    verb: qualifies_at
+    cardinality: many-to-one
+    source: [schemas/operator_qualification.yaml]
+    description: Machine or station the operator is qualified to operate
+
+  - from: operator_qualification
+    to: user
+    verb: certified_by
+    cardinality: many-to-one
+    source: [schemas/operator_qualification.yaml]
+    description: Internal certifying authority who granted the qualification
+
+  # ============================================================
+  # ASSEMBLY (PHASE 2 ENTITIES)
+  # ============================================================
+  # Note: Core assembly_operation→torque_specification, torque_sequence,
+  # torque_readings_record, witness_inspection, kit_record edges already
+  # exist in the ASSEMBLY ROUTING / ASSEMBLY OPERATION section above.
+  # This section adds new FK edges from the assembly.yaml Phase 2 entities
+  # that were not captured in the original graph.
+
+  - from: torque_specification
+    to: assembly_routing
+    verb: default_for
+    cardinality: one-to-many
+    source: [schemas/assembly.yaml]
+    description: Assembly routings that use this spec as their default torque requirement
+
+  - from: torque_specification
+    to: torque_readings_record
+    verb: governs
+    cardinality: one-to-many
+    source: [schemas/assembly.yaml]
+
+  - from: torque_readings_record
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  - from: torque_readings_record
+    to: torque_specification
+    verb: against_spec
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  - from: torque_readings_record
+    to: tool_gauge
+    verb: used_tool
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+    description: Calibrated torque wrench used
+
+  - from: witness_inspection
+    to: job
+    verb: for_job
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  - from: witness_inspection
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  - from: kit_record
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  - from: kit_record
+    to: user
+    verb: kitted_by
+    cardinality: many-to-one
+    source: [schemas/assembly.yaml]
+
+  # ============================================================
+  # INSPECTION (PHASE 2 ENTITIES)
+  # ============================================================
+
+  - from: inspection_event
+    to: job
+    verb: for_job
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: serial_number
+    verb: for_serial
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: material_lot
+    verb: for_lot
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: operation
+    verb: closes_operation
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: user
+    verb: conducted_by
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: pmi_event
+    verb: produces
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: measurement_result
+    verb: produces
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: certification_package
+    verb: linked_to_fai
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+    description: FAI cert package when event_type = First_Article
+
+  - from: calibration_record
+    to: tool_gauge
+    verb: documents
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: tool_gauge
+    to: calibration_record
+    verb: has_calibration
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+
+  - from: tool_gauge
+    to: torque_readings_record
+    verb: used_in
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+    description: Torque execution records where this wrench was the instrument used
+
+  - from: tool_gauge
+    to: pmi_event
+    verb: used_in
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+    description: PMI measurement events where this gauge was the instrument used
+
+  - from: key_characteristic
+    to: part
+    verb: defined_on
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+    description: Set when subject_type = part
+
+  - from: key_characteristic
+    to: assembly
+    verb: defined_on
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+    description: Set when subject_type = assembly
+
+  - from: key_characteristic
+    to: pmi_event
+    verb: measured_in
+    cardinality: one-to-many
+    source: [schemas/inspection.yaml]
+
+  # ============================================================
+  # QUALITY TOOLS (AIAG: FMEA / CONTROL PLAN / SPC / PPAP)
+  # ============================================================
+
+  - from: fmea_item
+    to: part
+    verb: for_part
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: control_plan_item
+    to: part
+    verb: for_part
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: control_plan_item
+    to: characteristic
+    verb: controls
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: spc_result
+    to: characteristic
+    verb: for_characteristic
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: spc_result
+    to: job
+    verb: scoped_to_job
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: spc_result
+    to: inspection_plan
+    verb: scoped_to_plan
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: ppap_submission
+    to: part
+    verb: for_part
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: ppap_submission
+    to: customer
+    verb: for_customer
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: ppap_submission
+    to: first_article_inspection
+    verb: references_fai
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  - from: ppap_submission
+    to: customer_approval
+    verb: approved_via
+    cardinality: many-to-one
+    source: [schemas/quality_tools.yaml]
+
+  # ============================================================
+  # DIMENSIONAL INSPECTION (InspectAI)
+  # ============================================================
+
+  - from: characteristic
+    to: part
+    verb: on_part
+    cardinality: many-to-one
+    source: [schemas/characteristic.yaml]
+
+  - from: characteristic
+    to: part_specification
+    verb: on_specification
+    cardinality: many-to-one
+    source: [schemas/characteristic.yaml]
+
+  - from: characteristic
+    to: inspection_plan
+    verb: in_inspection_plan
+    cardinality: many-to-one
+    source: [schemas/characteristic.yaml]
+
+  - from: characteristic
+    to: key_characteristic
+    verb: elevated_as
+    cardinality: one-to-one
+    source: [schemas/characteristic.yaml]
+    description: Optional elevation to key_characteristic when is_critical = true
+
+  - from: characteristic
+    to: measurement_result
+    verb: measured_by
+    cardinality: one-to-many
+    source: [schemas/characteristic.yaml]
+
+  - from: characteristic
+    to: control_plan_item
+    verb: in_control_plan
+    cardinality: one-to-many
+    source: [schemas/characteristic.yaml]
+
+  - from: characteristic
+    to: spc_result
+    verb: has_spc_result
+    cardinality: one-to-many
+    source: [schemas/characteristic.yaml]
+
+  - from: measurement_result
+    to: inspection_event
+    verb: in_session
+    cardinality: many-to-one
+    source: [schemas/measurement_result.yaml]
+
+  - from: measurement_result
+    to: characteristic
+    verb: for_characteristic
+    cardinality: many-to-one
+    source: [schemas/measurement_result.yaml]
+
+  - from: measurement_result
+    to: tool_gauge
+    verb: measured_with
+    cardinality: many-to-one
+    source: [schemas/measurement_result.yaml]
+
+  - from: measurement_result
+    to: work_center
+    verb: at_machine
+    cardinality: many-to-one
+    source: [schemas/measurement_result.yaml]
+
+  - from: measurement_result
+    to: user
+    verb: measured_by
+    cardinality: many-to-one
+    source: [schemas/measurement_result.yaml]

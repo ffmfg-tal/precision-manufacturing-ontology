@@ -1,6 +1,6 @@
 # Entity Inventory for the precision-manufacturing-ontology
 # Generated: 2026-04-22 (coherence pass, Task 5)
-# Updated: 2026-04-22 (Phase 3.2 matrix regen — has_schema fields and notes updated for all Phase 2.A–2.F schemas)
+# Updated: 2026-04-24 (Phase 2 additions — 29 new entries; 9 stale has_schema fixes; InspectAI entities added)
 # Source: reference/composition-archetypes.md + extensions/*.md + reference/domain-map.md + schemas/*.yaml
 #
 # Purpose: machine-readable union of every entity the ontology touches. Feeds the
@@ -24,9 +24,10 @@
 #   - notes: interpretation decisions, alias resolutions, phase-of-authoring notes.
 #
 # Entries sorted alphabetically by name.
-# Entity count: 82 (original 80 + work_order Phase 2.C + receipt Phase 2.E; two entries
-#   renamed: approved_vendor_list_entry → approved_supplier_list_entry,
-#   vendor_qualification_event → supplier_qualification_event).
+# Entity count: 117 (82 original + 29 Phase 2 additions (process engineering, tool room,
+#   packaging, change management, assembly hardware, assembly, inspection extensions) +
+#   6 InspectAI-derived additions: characteristic, measurement_result, fmea_item,
+#   control_plan_item, spc_result, ppap_submission).
 
 inventory:
 
@@ -98,12 +99,22 @@ inventory:
     has_schema: schemas/part.yaml
     notes: "Distinct many-to-many edge entity per Decision 1.1. Schema: schemas/part.yaml (Phase 2.B). Carries qty, UOM, find-number, effectivity, and polymorphic parent/child FKs with subject_type discriminators."
 
+  - name: cam_file
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "CAM project file that is the engineering source for one or more NC programs. One CAM file posts to multiple nc_program records via different post-processors. Tied to one operation within one nre_package. cam_file.id is optional FK on nc_program for hand-coded programs. Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
   - name: calibration_record
     archetypes_used_in: none
     existing_definitions:
+      - schemas/inspection.yaml  # canonical schema (Phase 2 inspection extensions)
+      - extensions/inspection-calibration.md  # prose narrative
       - extensions/quality-flowdowns.md  # FAI form3 characteristics[].equipment_calibration_id
-    has_schema: null
-    notes: "Referenced only by uuid link from FAI Form 3 characteristic measurements. No standalone schema or narrative definition. Candidate for a dedicated metrology extension or deletion if calibration tracking lives solely in the production system with no schema obligation."
+    has_schema: schemas/inspection.yaml
+    notes: "Immutable audit record of a single calibration event on a tool or gauge. One record per calibration event; never modified after creation. Lifecycle state (Current/Due_Soon/Overdue/Quarantined) lives on tool_gauge, not this record. Schema added Phase 2.C: schemas/inspection.yaml."
 
   - name: certification_document
     archetypes_used_in: [A, B, C]
@@ -126,6 +137,13 @@ inventory:
     has_schema: schemas/certification_package.yaml
     notes: "Nested per Decision 1.9. contains_packages[] holds child certification_package refs (assembly cert contains constituent part cert packages). Schema: schemas/certification_package.yaml (Phase 2.F)."
 
+  - name: characteristic
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/characteristic.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/characteristic.yaml
+    notes: "Base drawing callout entity — every dimension, GD&T callout, thread note, surface finish, datum, and note extracted from a part_specification revision. source enum includes AI_Extracted for InspectAI pipeline; is_critical flag elevates to key_characteristic via elevated_as relationship. Not all characteristics become key_characteristics. Schema: schemas/characteristic.yaml (InspectAI-derived)."
+
   - name: characteristic_measurement
     archetypes_used_in: [A, B, C]
     existing_definitions:
@@ -134,6 +152,14 @@ inventory:
       - extensions/quality-flowdowns.md  # FAI form3.characteristics[] schema
     has_schema: schemas/quality.yaml  # embedded in as9102_form_3.characteristics[]
     notes: "A single measurement of a single characteristic. Carries qif_characteristic_id link, measured value, deviation, pass/fail. Embedded in as9102_form_3.characteristics[] sub-object within first_article_inspection in schemas/quality.yaml."
+
+  - name: cmm_program
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Machine-specific CMM program for an inspection operation. Distinct from inspection_plan (method-agnostic governance document): cmm_program is the machine-executable artifact. cmm_system field captures the CMM software (PC-DMIS, Calypso, etc.). Part of the nre_package. Schema: schemas/process_engineering.yaml (Phase 2.A)."
 
   - name: coc
     archetypes_used_in: [A, B, C]
@@ -154,6 +180,13 @@ inventory:
       - schemas/material.yaml  # material_lot.conflict_mineral_status attribute
     has_schema: schemas/certification_document.yaml  # alias — cert_type: ConflictMineral
     notes: "Alias of certification_document (cert_type: ConflictMineral) per Decision 1.6. conflict_mineral_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
+
+  - name: control_plan_item
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality_tools.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/quality_tools.yaml
+    notes: "Single row in an AIAG APQP control plan. Specifies how one product or process characteristic at one process step is monitored during production — measurement method, sample size, frequency, reaction plan. References characteristic.id. InspectAI owns control plan workflow; ontology references by FK. Schema: schemas/quality_tools.yaml (InspectAI-derived)."
 
   - name: country
     archetypes_used_in: [A, B, C]
@@ -202,6 +235,14 @@ inventory:
     has_schema: schemas/customer_purchase_order.yaml
     notes: "Inbound X12 850 from customer. Kept distinct per Decision 1.4; it is the origin of the quality flowdown cascade. State machine from Received through Closed. Schema: schemas/customer_purchase_order.yaml (Phase 2.E)."
 
+  - name: cutter_definition
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Catalog entry (not a physical item) for a cutter type — manufacturer, part number, geometry, material, coating. Cutters are consumable and not individually serialized by default; consumption is tracked via tool_life_record. One cutter_definition may correspond to many physical cutters consumed over time. Schema: schemas/tool_room.yaml (Phase 2)."
+
   - name: data_classification
     archetypes_used_in: none
     existing_definitions:
@@ -210,6 +251,14 @@ inventory:
       - reference/domain-map.md  # Section 8 — Compliance and Governance
     has_schema: schemas/data_classification.yaml
     notes: "Reference entity implementing the ip-boundary.md Data Classification Matrix. classification_level enum; storage/transmission rules; ITAR flag; access_roles[]; retention_years. Applied to other entities by reference. Schema: schemas/data_classification.yaml (Phase 2.F)."
+
+  - name: deviation_waiver
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/change_management.yaml  # canonical schema (Phase 2 change management)
+      - extensions/change-management.md  # prose narrative
+    has_schema: schemas/change_management.yaml
+    notes: "Customer or DER authorization document permitting nonconforming material use. document_type enum: Deviation (pre-production authorization) or Waiver (post-production acceptance). approved_by is a free-text string (external authority — customer name/title or DER certificate number). A waiver references an NCR. AS9100 §8.7.1 compliance record. Schema: schemas/change_management.yaml (Phase 2)."
 
   - name: dfars_declaration
     archetypes_used_in: [A, B, C]
@@ -240,6 +289,14 @@ inventory:
       - extensions/ip-boundary.md  # ITAR data handling rules
     has_schema: schemas/certification_document.yaml  # alias — cert_type: ExportCompliance
     notes: "Alias of certification_document (cert_type: ExportCompliance) per Decision 1.6. export_compliance_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
+
+  - name: engineering_change_notice
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/change_management.yaml  # canonical schema (Phase 2 change management)
+      - extensions/change-management.md  # prose narrative
+    has_schema: schemas/change_management.yaml
+    notes: "Authorizes a change to a part number's drawing revision, routing version, material, process, or governing specification. Carries old/new part_specification_id and routing_id FKs. Does not model cascade logic (revision creation, in-flight job evaluation) — those are production system operations the ECN authorizes. AS9100 §8.3.6 compliance record. Schema: schemas/change_management.yaml (Phase 2)."
 
   - name: fai_form_1_header
     archetypes_used_in: [B, C]
@@ -274,6 +331,29 @@ inventory:
     has_schema: schemas/quality.yaml
     notes: "AS9102 Rev C three-form FAI record. as9102_form_1/2/3 embedded as sub-objects with no independent UUIDs. subject_id/subject_type polymorphic FK per Decision 1.9. Schema: schemas/quality.yaml (Phase 2.D)."
 
+  - name: fixture_use
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Join entity linking a routing operation to a fixture part. Fixtures are part entities with part_kind: fixture (not a separate entity class). required flag distinguishes mandatory fixtures from alternatives. One operation may have multiple fixture_use records (primary workholding, secondary clamp, etc.). Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
+  - name: fmea_item
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality_tools.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/quality_tools.yaml
+    notes: "Single row in a PFMEA or DFMEA per AIAG FMEA 4th Edition. Carries severity/occurrence/detection ratings and RPN (S × O × D); includes revised ratings after corrective actions. References part.id. InspectAI owns FMEA workflow; ontology references by FK from control plans and PPAP submissions. Schema: schemas/quality_tools.yaml (InspectAI-derived)."
+
+  - name: gauge_definition
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Catalog entry for a gauge type (presetter model, caliper model, CMM probe type). Defines what a gauge IS — manufacturer, model, measurement range, default calibration interval. Physical calibrated instruments are tool_gauge records in schemas/inspection.yaml. Relationship between gauge_definition and tool_gauge is currently implicit; a future FK migration may make it explicit. Schema: schemas/tool_room.yaml (Phase 2)."
+
   - name: heat_number
     archetypes_used_in: [A, B, C]
     existing_definitions:
@@ -283,12 +363,38 @@ inventory:
     has_schema: null
     notes: "Validated string attribute per Decision 1.7. Canonical form: material_lot.heat_number (required string). Additional heat data (mill source, melt date, chemistry actuals) lives on material_lot and mtr cert document. Not a first-class entity; archetype display node [Heat Number] is a string field reference. No schema."
 
+  - name: holder_definition
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Catalog entry for a holder type — holder style, taper standard (CAT40, HSK63A, BT40, etc.), and bore size. Physical holders are serialized parts with part_kind: fixture in schemas/part.yaml; holder_definition is the spec those parts conform to. One holder_definition may correspond to many serialized holder parts tracked via tool_room_allocation. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: insert_installation_record
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/assembly_hardware.yaml  # canonical schema (Phase 2 assembly hardware)
+      - extensions/change-management.md  # prose narrative (assembly hardware context)
+    has_schema: schemas/assembly_hardware.yaml
+    notes: "Execution record for installing threaded inserts (helicoils, keenserts, nutplates) into a parent part. Records hole designation, installation torque, and tang breakoff confirmation for helicoil-type inserts. Tied to assembly_operation with operation_code INSERT. Immutable after inspector sign-off. Schema: schemas/assembly_hardware.yaml (Phase 2)."
+
   - name: inspection_event
     archetypes_used_in: none
     existing_definitions:
+      - schemas/inspection.yaml  # canonical schema (Phase 2 inspection extensions)
+      - extensions/inspection-calibration.md  # prose narrative
       - extensions/uuid-discipline.md  # entity table: 'Inspection Event' with UUID assignment rule
-    has_schema: null
-    notes: "uuid-discipline.md lists Inspection Event as a UUID-bearing entity (CMM run). Archetypes reference CMM sessions via QIF Results Document and PMI Event nodes but do not introduce a generic inspection_event node. Possibly a supertype of pmi_event + CMM session record; possibly redundant. Matrix should decide relationship to pmi_event."
+    has_schema: schemas/inspection.yaml
+    notes: "Lightweight UUID envelope for a bounded inspection session — bundles QIF results, pmi_events, and attachments from one inspector/job/unit into a single parent FK. Does not replicate measurement data; terminal when the session is saved (no approval gates). Schema added Phase 2.C: schemas/inspection.yaml."
+
+  - name: inspection_plan
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Pre-defined plan specifying which characteristics to check, in what order, and with what gauge type or method. Method-agnostic (governs measurement whether executed by CMM, hand gauge, or vision system). plan_type enum: FAI | InProcess | Receiving | Final. Distinct from cmm_program (machine-executable code). Schema: schemas/process_engineering.yaml (Phase 2.A)."
 
   - name: inventory_location
     archetypes_used_in: none
@@ -324,17 +430,20 @@ inventory:
   - name: key_characteristic
     archetypes_used_in: [A, B, C]
     existing_definitions:
+      - schemas/inspection.yaml  # canonical schema (Phase 2 inspection extensions)
+      - extensions/inspection-calibration.md  # prose narrative
       - reference/composition-archetypes.md  # all archetypes: measures → [Key Characteristic]
       - extensions/quality-flowdowns.md  # FAI Form 3 characteristics (by extension)
-    has_schema: null
-    notes: "A drawing characteristic flagged as key/critical per AS9102 definition. Represented as the target of a measurement, not as a standalone schema entity. Matrix should flag gap — KC should have its own attributes (balloon number, drawing reference, tolerance) rather than being implicit in characteristic_measurement."
+    has_schema: schemas/inspection.yaml
+    notes: "A design or engineering attribute flagged for elevated measurement attention and traceability. Polymorphic FK (subject_id + subject_type) on part or assembly per Decision 1.9. balloon_number ties to drawing callout; characteristic_id links optionally to the full characteristic record. Schema added Phase 2.C: schemas/inspection.yaml."
 
   - name: kit_record
     archetypes_used_in: [C]
     existing_definitions:
+      - schemas/assembly.yaml  # canonical schema (Phase 2 assembly extensions)
       - reference/composition-archetypes.md  # Archetype C: OP-A010 produces → [Kit Record]
-    has_schema: null
-    notes: "Records which sub-component serials are binned to an assembly serial (kit+stage before bolt-up). No schema; no prior definition. Candidate for assembly extension."
+    has_schema: schemas/assembly.yaml
+    notes: "Verification record confirming all required parts, fasteners, and consumables for an assembly operation are present before work begins. kit_contents array is a flat embedded JSONB (immutable once assembly starts). complete = true gates the assembly_operation from starting. Schema added Phase 2: schemas/assembly.yaml."
 
   - name: machine_event
     archetypes_used_in: [A, B, C]
@@ -395,6 +504,13 @@ inventory:
     has_schema: schemas/material.yaml
     notes: "Well-defined. Schema exists in two places (schemas/material.yaml and extensions/material-certs.md narrative); matrix should reconcile."
 
+  - name: measurement_result
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/measurement_result.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/measurement_result.yaml
+    notes: "Per-reading per-sample per-characteristic dimensional measurement result. One row per sample per characteristic per inspection_event. Carries actual_value, deviation, conformance, source_type (CMM/Operator/Manual/VisionSystem/AutomatedGauge), and equipment/operator traceability. Distinct from pmi_event (XRF/OES chemistry testing). Schema: schemas/measurement_result.yaml (InspectAI-derived)."
+
   - name: mrb_disposition
     archetypes_used_in: none
     existing_definitions:
@@ -435,6 +551,14 @@ inventory:
     has_schema: schemas/nadcap_certification.yaml
     notes: "Standalone Nadcap certificate held by a supplier: certificate number, scope category, expiration, audit body. Extracted from approved_supplier_list_entry into a first-class entity. Schema: schemas/nadcap_certification.yaml (Phase 2.E)."
 
+  - name: nc_program
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Machine-specific CNC program for one operation at one work center. Natural key is (operation_id, work_center_id); same operation may have multiple NC programs for machine flexibility. Status lifecycle: Draft → Proven → Released → Obsolete. Only Released programs may be issued for production. prove_out_record advances from Proven to Released. Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
   - name: nonconformance_report
     archetypes_used_in: none
     existing_definitions:
@@ -444,6 +568,14 @@ inventory:
       - extensions/ip-boundary.md  # record retention table
     has_schema: schemas/quality.yaml
     notes: "NCR with embedded mrb_disposition. subject_id/subject_type polymorphic FK per Decision 1.9. State machine: Draft → Closed. Schema: schemas/quality.yaml (Phase 2.D)."
+
+  - name: nre_package
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Revision-lock envelope for all process engineering documents (NC programs, CAM files, setup sheets, CMM programs, inspection plans, tooling lists) for a specific drawing + routing revision pair. part_specification_id and routing_id are immutable after creation — any change requires a new package (prior → Superseded). Status lifecycle: Draft → InReview → Approved → Superseded. Schema: schemas/process_engineering.yaml (Phase 2.A)."
 
   - name: operation
     archetypes_used_in: [A, B, C]
@@ -456,6 +588,13 @@ inventory:
     has_schema: schemas/routing.yaml
     notes: "In-house routing operation template. Distinct from work_order (the execution instance on a specific job). work_order.operation_id FKs to operation.id. Schema: schemas/routing.yaml (Phase 2.C)."
 
+  - name: operator_qualification
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/operator_qualification.yaml  # canonical schema (Phase 2)
+    has_schema: schemas/operator_qualification.yaml
+    notes: "Records that a specific operator is qualified to perform a specific operation type, process specification, or equipment class. qualification_type enum: Process | OperationCode | Equipment | Inspection. Required for special processes (welding, NDT, torque-critical assembly, helicoil installation) per AS9100 §8.5.1. Distinct from nadcap_certification (facility-level accreditation). Schema: schemas/operator_qualification.yaml (Phase 2)."
+
   - name: outside_process_operation
     archetypes_used_in: [B]
     existing_definitions:
@@ -465,6 +604,30 @@ inventory:
       - reference/domain-map.md  # Section 3 — Manufacturing (hybrid entity)
     has_schema: schemas/outside_process_operation.yaml
     notes: "Hybrid entity: routing operation + purchase order + cert collection event. Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
+
+  - name: packaging_item
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/packaging.yaml  # canonical schema (Phase 2 packaging)
+      - extensions/packaging.md  # prose narrative
+    has_schema: schemas/packaging.yaml
+    notes: "Single packaging component used in a packing_record — one entity per distinct component type per packing event. First-class entity (not a nested array) per Decision 2.4 to support independent lot traceability. item_type enum covers Bag, Box, DesiccantUnit, HumidityIndicator, VCIBag, ESDShielding, Label, Foam, CustomInsert, Other. When item_type = CustomInsert, part_id links to the manufactured insert part. Schema: schemas/packaging.yaml (Phase 2)."
+
+  - name: packaging_specification
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/packaging.yaml  # canonical schema (Phase 2 packaging)
+      - extensions/packaging.md  # prose narrative
+    has_schema: schemas/packaging.yaml
+    notes: "Governing document defining how a part or assembly must be packaged. Specifies MIL-STD-2073 preservation level (A/B/C/None), moisture barrier, ESD, desiccant, humidity indicator, quantity limits, and labeling standard. Polymorphic subject FK (part or assembly) per Decision 2.2. New spec revision issued when requirements change. Schema: schemas/packaging.yaml (Phase 2)."
+
+  - name: packing_record
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/packaging.yaml  # canonical schema (Phase 2 packaging)
+      - extensions/packaging.md  # prose narrative
+    has_schema: schemas/packaging.yaml
+    notes: "Execution instance of a packaging_specification. Immutable after inspector sign-off per Decision 2.3 (rework creates a new record). Links to outbound shipment (not job directly — job traceability is transitive via shipment.job_id per Decision 2.5). Polymorphic subject FK for part or assembly per Decision 2.2. Schema: schemas/packaging.yaml (Phase 2)."
 
   - name: part
     archetypes_used_in: [A, B, C]
@@ -503,6 +666,29 @@ inventory:
     has_schema: schemas/certification_document.yaml  # alias — cert_type: PMI_Report
     notes: "Alias of certification_document (cert_type: PMI_Report) per Decision 1.6. Documents XRF/OES result from a pmi_event. No standalone schema."
 
+  - name: ppap_submission
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality_tools.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/quality_tools.yaml
+    notes: "AIAG PPAP 4th Edition submission package. Tracks ppap_level (1–5), submission_reason enum, status lifecycle (Draft → Submitted → Approved/Rejected/InterimApproval), and 18-element AIAG checklist embedded as an object array (not a separate table). Links to first_article_inspection and customer_approval. InspectAI owns PPAP workflow. Schema: schemas/quality_tools.yaml (InspectAI-derived)."
+
+  - name: press_fit_record
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/assembly_hardware.yaml  # canonical schema (Phase 2 assembly hardware)
+      - extensions/change-management.md  # prose narrative (assembly hardware context)
+    has_schema: schemas/assembly_hardware.yaml
+    notes: "Execution record for pressing interference-fit components (dowel pins, bearing races, bushings) into a parent part. Records press force (lbf), displacement (inches), and force_within_spec boolean — both limits are critical quality characteristics. Tied to assembly_operation with operation_code PRESS_FIT. Immutable after inspector sign-off. Schema: schemas/assembly_hardware.yaml (Phase 2)."
+
+  - name: print_file
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Controlled copy of the drawing PDF packaged with the NRE set. Distinct from part_specification.pdf_file_ref (the master drawing record): print_file is a snapshot of the drawing revision at NRE package approval. distribution_statement must match part_specification.distribution_statement for the same revision. Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
   - name: process_certification
     archetypes_used_in: [B, C]
     existing_definitions:
@@ -530,6 +716,14 @@ inventory:
       - schemas/material.yaml  # material.heat_treatment.spec_primary string reference
     has_schema: schemas/outside_process_operation.yaml
     notes: "AMS/MIL/ASTM/NASM process spec as first-class entity. Covers both outside process specs and in-house programming procedures. Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
+
+  - name: prove_out_record
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Immutable evidence that an NC program was proven on a physical machine. Records operator, machine, date, and first_piece_result (Pass/Fail/Conditional). Never edited after creation — rework produces a second record. Engineering or quality sign-off (approved_by_id) required before nc_program advances from Proven to Released. Schema: schemas/process_engineering.yaml (Phase 2.A)."
 
   - name: purchase_order
     archetypes_used_in: none
@@ -615,6 +809,14 @@ inventory:
     has_schema: schemas/job.yaml
     notes: "Individual physical unit within a job. UUID anchor across QIF SerialNumber and X12 SN1 segments. State machine: Assigned → Scrapped; RMA return path Shipped → Returned → Quarantined. Schema: schemas/job.yaml (Phase 2.C + Phase 2.F state machine)."
 
+  - name: setup_sheet
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Operator setup instruction for one operation at one work center — fixturing orientation, work offsets, tool list, and critical setup notes. Work-center-specific because machine coordinate systems, pallet configurations, and fixturing differ between machines even for the same operation. Part of the nre_package. Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
   - name: shelf_life_certification
     archetypes_used_in: none
     existing_definitions:
@@ -653,6 +855,13 @@ inventory:
     has_schema: null
     notes: "Enum per Decision 1.7. Canonical values: SAE | ASTM | MIL | ASME | NASM | OEM | Internal (NASM added — was missing from schemas/material.yaml enum). Not a first-class entity. Archetype display node [Spec Body] is an enum field reference."
 
+  - name: spc_result
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quality_tools.yaml  # canonical schema (InspectAI-derived)
+    has_schema: schemas/quality_tools.yaml
+    notes: "Cached SPC statistics record for one characteristic over one measurement sample set — Cp, Cpk, UCL/LCL for X-bar and R charts, and Western Electric rule violation flags. Derived from measurement_result records and recalculated when new measurements arrive (not immutable). Scoped to a characteristic and optionally to a job or inspection plan. Schema: schemas/quality_tools.yaml (InspectAI-derived)."
+
   - name: sub_tier_purchase_order
     archetypes_used_in: [B]
     existing_definitions:
@@ -683,38 +892,110 @@ inventory:
     has_schema: schemas/approved_supplier_list_entry.yaml  # deprecated alias
     notes: "Deprecated alias per Decision 1.3. Canonical entity is approved_supplier_list_entry. Archetype B display name [Supplier Approval] retained. No standalone schema."
 
+  - name: tool_assembly_definition
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Abstract specification for a complete assembled tool: one cutter_definition + one holder_definition at a nominal stickout. This is the entity tooling lists and nc_program pocket requirements reference. Distinct from tool_preset (the physical measurement event for a specific assembled instance). One tool_assembly_definition may have many tool_preset records over time. Schema: schemas/tool_room.yaml (Phase 2)."
+
   - name: tool_gauge
     archetypes_used_in: none
     existing_definitions:
+      - schemas/inspection.yaml  # canonical schema (Phase 2 inspection extensions)
+      - extensions/inspection-calibration.md  # prose narrative
       - extensions/uuid-discipline.md  # entity table line 29; UUID minting rule line 55
-    has_schema: null
-    notes: >
-      Covers cutting tools and measurement gauges as UUID-bearing resources
-      (tool crib, calibration records, MTConnect tool reference, QIF resource).
-      Not exercised by any archetype; candidate for future archetype coverage
-      or for consolidation with work_center under a broader resource schema.
-      Matrix triage candidate.
+    has_schema: schemas/inspection.yaml
+    notes: "Physical measurement instrument or torque tool tracked for calibration currency. Carries mutable calibration lifecycle state machine (Current → Due_Soon → Overdue → Quarantined → Retired); each calibration event produces an immutable calibration_record. mtconnect_tool_asset_id bridges to MTConnect CuttingTool asset model. Schema added Phase 2.C: schemas/inspection.yaml."
+
+  - name: tool_life_record
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Cumulative usage tracking for a cutter type on a specific job or work order run. Records parts_run, cumulative_parts_run, and tool_change_required flag. Primary lifecycle mechanism for non-serialized consumable cutters. Over time, records for a given cutter_definition_id build a usage history that informs change intervals and purchasing. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tool_maintenance_event
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Service event (sharpening, cleaning, repair, inspection, recertification, retirement) performed on a physical tool or instrument. asset_type discriminator with two nullable FKs: asset_part_id for Fixture/Holder assets; tool_gauge_id (from schemas/inspection.yaml) for Gauge assets. Cutter asset_type available for specifically tracked cutter inventory. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tool_pocket_assignment
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Actual assignment for a specific work_order execution: which tool_preset was loaded into which machine pocket, by whom, and when. Bridges tool_pocket_requirement (SPEC) to the physical event. One record per pocket per work_order; a cutter change mid-run creates a new assignment record for that pocket. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tool_pocket_requirement
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Tool requirement encoded in an NC program: a specific pocket number must be loaded with a specific tool_assembly_definition before the program can run. This is the SPEC (what the nc_program needs). The corresponding actual event is tool_pocket_assignment (what was loaded for a given work_order). Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tool_preset
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Measured offset record for a specific physical tool assembly — a named serialized holder (part.id, part_kind = fixture) with a cutter loaded to a measured stickout, measured on a presetter on a specific date. One preset per measurement event; old records are preserved. presetter_id → tool_gauge.id provides calibration traceability. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tool_room_allocation
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tool_room.yaml  # canonical schema (Phase 2 tool room)
+      - extensions/tool-room.md  # prose narrative
+    has_schema: schemas/tool_room.yaml
+    notes: "Checkout record for a physical fixture or holder (part with part_kind: fixture) checked out to a job or operation. Tracks custody: who took it, when, expected return, actual return, and disposition (CheckedOut/Returned/Lost/Damaged). A part may have multiple sequential allocation records; only one should be CheckedOut at a time. Schema: schemas/tool_room.yaml (Phase 2)."
+
+  - name: tooling_list
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "Complete list of tools required to run a specific NC program at a specific work center. Tied to nc_program (not just operation) because tool selection is machine-specific — holder type, taper standard, and stickout limits vary by machine. Authoritative reference for pre-job tool staging and crib pull. Schema: schemas/process_engineering.yaml (Phase 2.A)."
+
+  - name: tooling_list_line
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/process_engineering.yaml  # canonical schema (Phase 2.A process engineering)
+      - extensions/process-engineering-nre.md  # prose narrative
+    has_schema: schemas/process_engineering.yaml
+    notes: "One line in a tooling list: pocket_number (T-code) linked to a tool_assembly_definition from the tool room. Pocket numbers correspond directly to T-codes in the NC program. description provides human-readable summary for the operator. Schema: schemas/process_engineering.yaml (Phase 2.A)."
 
   - name: torque_readings_record
     archetypes_used_in: [C]
     existing_definitions:
+      - schemas/assembly.yaml  # canonical schema (Phase 2 assembly extensions)
       - reference/composition-archetypes.md  # Archetype C: records → [Torque Readings Record]
-    has_schema: null
-    notes: "Record of actual torque values applied during assembly bolt-up, one reading per fastener. No prior schema or narrative. Candidate for assembly extension."
+    has_schema: schemas/assembly.yaml
+    notes: "Execution record capturing actual torque readings applied to each fastener during an assembly operation on a specific serial unit. readings[] array carries per-fastener-per-pass values; all_within_spec is the cert package summary flag. Immutable once created. Schema added Phase 2: schemas/assembly.yaml."
 
   - name: torque_sequence
     archetypes_used_in: [C]
     existing_definitions:
+      - schemas/assembly.yaml  # canonical schema (Phase 2 assembly extensions)
       - reference/composition-archetypes.md  # Archetype C: has_torque_sequence edge
-    has_schema: null
-    notes: "Ordered pattern for applying torque (cross-pattern, star pattern, two-pass, three-pass). No prior schema. Candidate for assembly extension. May collapse into torque_specification."
+    has_schema: schemas/assembly.yaml
+    notes: "Fastener tightening ORDER pattern for a multi-fastener joint — pattern_type (Star, Cross, Sequential, etc.) and pass_count with step_percentages. Distinct from torque_specification (which defines the target torque value). Both are referenced independently by assembly_operation. Schema added Phase 2: schemas/assembly.yaml."
 
   - name: torque_specification
     archetypes_used_in: [C]
     existing_definitions:
+      - schemas/assembly.yaml  # canonical schema (Phase 2 assembly extensions)
       - reference/composition-archetypes.md  # Archetype C: has_torque_spec edge; references AS5272
-    has_schema: null
-    notes: "Target torque value + tolerance + lubrication condition + reference spec (e.g., AS5272 Table IV-A). No prior schema. Candidate for assembly extension."
+    has_schema: schemas/assembly.yaml
+    notes: "Template defining required torque value, tolerance, and installation conditions (lube_condition, safetying_required) for a fastener position. Typically derived from AS5272. Referenced by assembly_routing (default) and assembly_operation (step-level override). Schema added Phase 2: schemas/assembly.yaml."
 
   - name: uns_number
     archetypes_used_in: [A, B, C]
@@ -740,7 +1021,7 @@ inventory:
       - reference/composition-archetypes.md  # Archetype B: USML Category VIII; Archetype C: Category XV
       - extensions/ip-boundary.md  # ITAR and USML mention
     has_schema: null
-    notes: "US Munitions List category (22 CFR 121.1). Reference data — 21 categories. No schema; archetype trees treat as a node under export_classification. Matrix may keep as a reference enum."
+    notes: "US Munitions List category (22 CFR 121.1). String/enum per Decision 1.7 (confirmed 2026-04-24: stay as string until USML becomes an active query/navigation target). 21 fixed categories (I–XXI) stored as enum value on export_classification; no standalone schema."
 
   - name: supplier_qualification_event
     archetypes_used_in: none
@@ -753,9 +1034,10 @@ inventory:
   - name: witness_inspection
     archetypes_used_in: [C]
     existing_definitions:
+      - schemas/assembly.yaml  # canonical schema (Phase 2 assembly extensions)
       - reference/composition-archetypes.md  # Archetype C: witnessed_by → [Witness Inspection]
-    has_schema: null
-    notes: "Quality-engineer-witnessed inspection event for assembly bolt-up. No prior schema. performed_by targets user with quality_engineer role guard per Decision 1.8. Candidate for assembly extension. Schema authoring scheduled in Routing & Operations cluster (Phase 2.C)."
+    has_schema: schemas/assembly.yaml
+    notes: "Sign-off record that a qualified witness (QE or Inspector role) observed and accepted an assembly operation on a specific serial unit. Operational sign-off only — measurement data lives in torque_readings_record or inspection_event. Required when assembly_operation.requires_witness = true. Schema added Phase 2: schemas/assembly.yaml."
 
   - name: work_center
     archetypes_used_in: [A, B, C]

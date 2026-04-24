@@ -33,7 +33,7 @@ The ontology is measured by composition, not by domain polish. Success means: an
 
 **References:**
 - [`standards/`](standards/) — Layer 1 briefs.
-- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (stale at 137 edges; pending update for Phase 2 + InspectAI entities).
+- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (355 edges; updated 2026-04-24 for Phase 2 + InspectAI entities).
 - [`implementations/`](implementations/) — reference mappings to Carbon, Fulcrum, and a template for future systems.
 - [`reference/carbon-novelty-2026-04.md`](reference/carbon-novelty-2026-04.md) — latest Carbon scan findings.
 
@@ -43,7 +43,7 @@ A new contributor — human or agent — can reach any entity in ≤2 hops from 
 
 ## Status
 
-Active. Phase 2 (12 domains, 117 entities) completed 2026-04-24; InspectAI-derived quality entities added same day. Schema coverage: 94 of 123 entities fully specified; remaining are intentional (external standards not authored here, string/enum type decisions, aliases). Two machine-readable reference files stale pending update: `reference/entity-inventory.yaml` (still 82 entries) and `reference/relationship-graph.yaml` (still 137 edges). See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
+Active. Phase 2 (12 domains, 117 entities) completed 2026-04-24; InspectAI-derived quality entities added same day. Schema coverage: 106 of 117 entities fully specified; remaining 11 are intentional (external standards not authored here, string/enum type decisions, aliases, removed-from-canon). Machine-readable reference files updated 2026-04-24: `reference/entity-inventory.yaml` (117 entries) and `reference/relationship-graph.yaml` (355 edges). See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
 
 ## License
 
