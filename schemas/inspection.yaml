@@ -92,6 +92,14 @@ entities:
         type: uuid
         required: false
         description: FK → certification_package.id (where includes_fai = true) — links First Article inspection sessions to the FAI cert package
+      setup_number:
+        type: integer
+        required: false
+        description: >
+          Setup number for multi-setup inspection sessions — distinguishes measurements
+          taken at different machine setups or part orientations (e.g., Setup 1 = OD features,
+          Setup 2 = bore features). Matches setup_number on measurement_result records in
+          this session for per-setup traceability.
       notes:
         type: string
         required: false
@@ -112,7 +120,11 @@ entities:
       produces_pmi_events:
         target: pmi_event
         cardinality: one-to-many
-        description: Individual point-measurement events collected in this session
+        description: PMI / Positive Material Identification events (XRF/OES alloy chemistry tests) collected in this session — not dimensional measurements; see produces_measurement_results
+      produces_measurement_results:
+        target: measurement_result
+        cardinality: one-to-many
+        description: Dimensional and GD&T measurement results (schemas/measurement_result.yaml) collected in this session; one record per characteristic per sample
       includes_qif_results:
         target: qif_result
         cardinality: one-to-many
@@ -420,6 +432,10 @@ entities:
         required: false
         values: [Every_Piece, First_And_Last, First_Piece_Only, Sample_Per_Lot, Customer_Directed]
         description: Required measurement frequency for this characteristic
+      characteristic_id:
+        type: uuid
+        required: false
+        description: FK → characteristic.id — links this KC to the full drawing callout record (schemas/characteristic.yaml); optional for KCs defined before AI extraction was available
       qif_characteristic_id:
         type: string
         required: false

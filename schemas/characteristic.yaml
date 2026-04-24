@@ -1,0 +1,156 @@
+# schemas/characteristic.yaml
+#
+# Layer-1 coverage: PARTIAL.
+#   ASME Y14.5 defines GD&T callout types and datum structure; QIF (Quality Information
+#   Framework) defines characteristic types in its QIFMeasurementResources module.
+#   Neither defines a manufacturer-layer entity for storing all drawing callouts as
+#   queryable records.
+#
+# Prose source: extensions/process-engineering-nre.md (inspection_plan section)
+#               and extensions/inspection-calibration.md
+#
+# Architectural decisions:
+#   characteristic is the drawing-extraction entity owned at the part_specification level.
+#   key_characteristic is the quality-tracking entity for elevated-attention features;
+#   key_characteristic.characteristic_id provides an optional FK back to the base
+#   characteristic. Not all characteristics become key_characteristics. An AI drawing
+#   extraction pipeline (e.g., InspectAI) populates characteristics; a QE reviewing and
+#   flagging elevates them to key_characteristic records.
+#
+# Entities: characteristic
+
+entities:
+
+  characteristic:
+    description: >
+      The base drawing callout entity — every dimension, GD&T callout, thread note,
+      surface finish, datum, and note extracted from a part drawing. Covers the full
+      drawing extraction output for a given part_specification revision. Inspired by
+      InspectAI's characteristics table. The existing key_characteristic entity covers
+      elevated-attention features only; characteristic covers all callouts, including
+      those that never reach key_characteristic status. An AI extraction pipeline
+      populates records automatically; a quality engineer reviewing the extraction may
+      flag individual records as is_critical and elevate them to key_characteristic
+      records via the elevated_as relationship.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the characteristic record is created
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id
+      part_specification_id:
+        type: uuid
+        required: true
+        description: FK → part_specification.id — the drawing revision this callout is on
+      inspection_plan_id:
+        type: uuid
+        required: false
+        description: FK → inspection_plan.id (defined in schemas/process_engineering.yaml) — the plan this characteristic belongs to
+      char_number:
+        type: integer
+        required: false
+        description: Sequential index within the inspection plan
+      balloon_number:
+        type: string
+        required: false
+        description: Drawing balloon callout identifier
+        examples: ["1", "12A", "47", "KC-03"]
+      tolerance_type:
+        type: enum
+        required: true
+        values: [Linear, Angular, GD_T, Thread, SurfaceFinish, Flatness, Roundness, Cylindricity, Parallelism, Perpendicularity, Angularity, Position, Concentricity, Symmetry, Runout, TotalRunout, Datum, Note, Other]
+        description: ASME Y14.5 callout classification for this characteristic
+      nominal:
+        type: number
+        required: false
+        description: Nominal dimension value
+      upper_tolerance:
+        type: number
+        required: false
+        description: Plus tolerance from nominal (positive number)
+      lower_tolerance:
+        type: number
+        required: false
+        description: Minus tolerance from nominal (stored as positive number)
+      gdt_symbol:
+        type: string
+        required: false
+        description: GD&T control frame symbol
+        examples: ["⊙", "∥", "⊥", "◎", "□"]
+      gdt_tolerance:
+        type: number
+        required: false
+        description: GD&T tolerance zone value
+      gdt_datums:
+        type: string[]
+        required: false
+        description: Referenced datum letters
+        examples: [["A", "B", "C"], ["A", "B"]]
+      feature_type:
+        type: string
+        required: false
+        description: Feature classification
+        examples: ["bore", "OD", "face", "thread", "radius", "chamfer"]
+      view_name:
+        type: string
+        required: false
+        description: Which drawing view or section this callout appears on
+        examples: ["Section A-A", "Detail B", "Front View"]
+      unit:
+        type: string
+        required: false
+        description: Measurement unit
+        examples: ["in", "mm", "deg"]
+      is_critical:
+        type: boolean
+        required: true
+        description: True if flagged as a Key Characteristic by design or customer contract
+      source:
+        type: enum
+        required: false
+        values: [AI_Extracted, Manual, CMM_Imported]
+        description: How this record was created
+      extraction_confidence:
+        type: number
+        required: false
+        description: >
+          0.0–1.0 AI extraction confidence score. Populated when source = AI_Extracted.
+          Scores below a configurable threshold should be flagged for QE review before
+          the characteristic is used in an inspection plan.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      on_part:
+        target: part
+        cardinality: many-to-one
+      on_specification:
+        target: part_specification
+        cardinality: many-to-one
+      in_inspection_plan:
+        target: inspection_plan
+        cardinality: many-to-one
+        description: Defined in schemas/process_engineering.yaml
+      elevated_as:
+        target: key_characteristic
+        cardinality: one-to-one
+        description: >
+          Optional link to key_characteristic record when is_critical = true.
+          Not all characteristics are elevated; this FK is null for the majority
+          of drawing callouts. Defined in schemas/inspection.yaml.
+      measured_by:
+        target: measurement_result
+        cardinality: one-to-many
+        description: Measurement results for this characteristic; defined in schemas/measurement_result.yaml
+      in_control_plan_items:
+        target: control_plan_item
+        cardinality: one-to-many
+        description: Defined in schemas/quality_tools.yaml
+      has_spc_results:
+        target: spc_result
+        cardinality: one-to-many
+        description: Defined in schemas/quality_tools.yaml

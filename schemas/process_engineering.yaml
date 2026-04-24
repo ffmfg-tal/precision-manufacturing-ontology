@@ -429,6 +429,21 @@ entities:
         type: string
         required: false
         description: Optional path or URL to QIF plan file providing machine-readable characteristic definitions
+      fmea_document_id:
+        type: uuid
+        required: false
+        description: >
+          Cross-reference to the FMEA artifact associated with this inspection plan's scope
+          (part + operation set). Not a FK to a standalone fmea_item — points to the
+          document-level cross-reference linking this plan to PFMEA records in
+          schemas/quality_tools.yaml.
+      control_plan_document_id:
+        type: uuid
+        required: false
+        description: >
+          Cross-reference to the control plan for this part/operation set.
+          Links this inspection plan to the governing AIAG APQP control plan
+          rows in schemas/quality_tools.yaml.
       notes:
         type: string
         required: false

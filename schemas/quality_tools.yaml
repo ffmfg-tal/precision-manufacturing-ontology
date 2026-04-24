@@ -1,0 +1,422 @@
+# schemas/quality_tools.yaml
+#
+# Layer-1 coverage: NONE for these entities.
+#   AIAG FMEA 4th Edition defines PFMEA structure (severity/occurrence/detection/RPN).
+#   AIAG APQP defines control plans. AIAG PPAP 4th Edition defines the 18-element
+#   submission requirements. No Layer-1 manufacturing data standard (STEP, MTConnect,
+#   QIF, X12) defines schemas for these entities.
+#
+# Prose source: reference/domain-map.md (Domain 7 Quality extension)
+#
+# Architectural decisions:
+#   These are AIAG quality tools that InspectAI owns operationally. The ontology references
+#   them by ID; it does not replicate the full AIAG workflow logic.
+#
+#   spc_result is a cached statistics record derived from measurement_results — it is
+#   recalculated when new measurements arrive, not immutable.
+#
+#   ppap_submission.checklist_items is an embedded object array (18 standard PPAP elements)
+#   rather than a separate table — the PPAP checklist is always retrieved with its parent
+#   and has no independent identity.
+#
+#   fmea_item and control_plan_item reference part.id and characteristic.id
+#   (characteristic defined in schemas/characteristic.yaml).
+#
+# Entities: fmea_item, control_plan_item, spc_result, ppap_submission
+
+entities:
+
+  fmea_item:
+    description: >
+      A single row in a Process or Design FMEA (Failure Mode and Effects Analysis) per
+      AIAG FMEA 4th Edition. Each item identifies one failure mode at one process step,
+      assigns AIAG severity / occurrence / detection ratings, computes the Risk Priority
+      Number (RPN = S × O × D), and captures corrective actions with revised ratings
+      after actions are taken. InspectAI owns the FMEA workflow; the ontology references
+      fmea_item records by ID for traceability from control plans and PPAP submissions.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id
+      fmea_type:
+        type: enum
+        required: true
+        values: [Design, Process]
+        description: Design FMEA (DFMEA) evaluates design-originated failure modes; Process FMEA (PFMEA) evaluates manufacturing process failure modes
+      process_step:
+        type: string
+        required: true
+        description: The process step or operation where this failure mode can occur
+        examples: ["Op 10 — 5-axis rough mill", "Op 30 — Deburr and clean", "Op 50 — CMM inspection"]
+      potential_failure_mode:
+        type: string
+        required: true
+        description: The manner in which the process or design could fail to meet its intent
+        examples: ["Undersize bore diameter", "Burr remaining on critical edge", "Wrong alloy substituted"]
+      potential_effect:
+        type: string
+        required: true
+        description: The consequence of the failure mode on the customer or downstream process
+        examples: ["Assembly interference; part rejected at customer", "FOD risk during assembly", "Material non-conformance; scrap"]
+      severity:
+        type: integer
+        required: true
+        description: AIAG severity rating 1–10; 10 = hazardous without warning; 1 = no effect
+      potential_cause:
+        type: string
+        required: true
+        description: The mechanism by which the failure mode could occur
+        examples: ["Tool wear", "Incorrect offset entry", "Incorrect material cert accepted at receiving"]
+      current_controls:
+        type: string
+        required: false
+        description: Existing prevention or detection controls in place before corrective actions
+        examples: ["Tool life limit enforced in ERP", "First-piece CMM inspection", "100% cert review at receiving"]
+      occurrence:
+        type: integer
+        required: true
+        description: AIAG occurrence rating 1–10; 10 = failure almost inevitable; 1 = failure unlikely
+      detection:
+        type: integer
+        required: true
+        description: AIAG detection rating 1–10; 10 = current controls cannot detect failure; 1 = current controls will always detect
+      rpn:
+        type: integer
+        required: true
+        description: Risk Priority Number = severity × occurrence × detection; range 1–1000; drives prioritization of corrective actions
+      recommended_actions:
+        type: string
+        required: false
+        description: Specific actions recommended to reduce RPN; may target severity, occurrence, or detection
+      responsibility:
+        type: string
+        required: false
+        description: Person or function responsible for completing the recommended actions
+        examples: ["QE — Jones", "Manufacturing Engineering", "Purchasing"]
+      target_completion_date:
+        type: date
+        required: false
+        description: Date by which recommended actions must be completed
+      actions_taken:
+        type: string
+        required: false
+        description: Description of corrective actions actually implemented
+      new_severity:
+        type: integer
+        required: false
+        description: Revised severity rating after corrective actions; range 1–10
+      new_occurrence:
+        type: integer
+        required: false
+        description: Revised occurrence rating after corrective actions; range 1–10
+      new_detection:
+        type: integer
+        required: false
+        description: Revised detection rating after corrective actions; range 1–10
+      new_rpn:
+        type: integer
+        required: false
+        description: Revised RPN after corrective actions = new_severity × new_occurrence × new_detection
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+
+  control_plan_item:
+    description: >
+      A single row in a Control Plan per AIAG APQP. Each item specifies how one product
+      or process characteristic at one process step is monitored and controlled during
+      production — what to measure, with what instrument, how often, and what to do when
+      out of control. Control plans are living documents updated when process changes occur.
+      InspectAI owns the control plan workflow; the ontology references control_plan_item
+      records by ID for traceability from PPAP submissions and SPC results.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id
+      characteristic_id:
+        type: uuid
+        required: false
+        description: FK → characteristic.id (defined in schemas/characteristic.yaml) — the specific drawing characteristic this control addresses
+      process_step:
+        type: string
+        required: true
+        description: The process step or operation where this control is applied
+        examples: ["Op 10 — 5-axis rough mill", "Op 40 — Hard anodize (outside process)", "Op 60 — Final CMM"]
+      machine_device:
+        type: string
+        required: false
+        description: Machine or measurement device used at this step
+        examples: ["Mazak 5-axis #1", "CMM — Renishaw", "Caliper 0–6 in", "Visual"]
+      characteristic_type:
+        type: enum
+        required: true
+        values: [Product, Process]
+        description: Product characteristic relates to part dimensions or attributes; Process characteristic relates to process parameters (feeds, speeds, temperatures)
+      product_process_spec:
+        type: string
+        required: false
+        description: Specification or tolerance from the drawing or process specification governing this characteristic
+        examples: ["1.250 ±0.0005 in", "Ra 63 max", "220–240°F bath temp"]
+      evaluation_measurement_technique:
+        type: string
+        required: false
+        description: Method used to measure or evaluate the characteristic
+        examples: ["CMM", "Caliper 0–6 in", "Surface profilometer", "Visual", "Attribute go/no-go gauge"]
+      sample_size:
+        type: integer
+        required: false
+        description: Number of pieces per sample group
+      sample_frequency:
+        type: string
+        required: false
+        description: How often samples are taken
+        examples: ["1/shift", "100%", "1/lot", "First piece", "First and last piece"]
+      control_method:
+        type: string
+        required: false
+        description: Statistical or procedural control method used
+        examples: ["SPC X-bar/R chart", "Attribute chart", "100% inspection", "First-piece approval", "Process certification"]
+      reaction_plan:
+        type: string
+        required: false
+        description: Required actions when the characteristic is found out of control or out of specification
+        examples: ["Stop production; tag and quarantine parts; notify QE", "Adjust offset; re-inspect last 5 pieces"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+      for_characteristic:
+        target: characteristic
+        cardinality: many-to-one
+        description: defined in schemas/characteristic.yaml
+
+  spc_result:
+    description: >
+      A cached statistical process control record for one characteristic over one
+      measurement sample set. spc_result is derived from measurement_result records —
+      it is recalculated when new measurements arrive and is not immutable. Stores
+      process capability indices (Cp, Cpk), control chart limits, and Western Electric
+      rule violation flags. The record is scoped to a characteristic and optionally
+      to a job (lot) or inspection plan, enabling capability tracking across production
+      runs and within a single job.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      characteristic_id:
+        type: uuid
+        required: true
+        description: FK → characteristic.id (defined in schemas/characteristic.yaml)
+      job_id:
+        type: uuid
+        required: false
+        description: FK → job.id — lot or job scope for this calculation (defined in schemas/job.yaml)
+      inspection_plan_id:
+        type: uuid
+        required: false
+        description: FK → inspection_plan.id — inspection plan scope for this calculation (defined in schemas/process_engineering.yaml)
+      sample_count:
+        type: integer
+        required: true
+        description: Number of individual measurements included in this SPC calculation
+      mean:
+        type: number
+        required: true
+        description: Process mean (X-bar) of the sample set
+      std_dev:
+        type: number
+        required: true
+        description: Process standard deviation of the sample set
+      cp:
+        type: number
+        required: false
+        description: Process capability index Cp = (USL − LSL) / 6σ; measures potential capability relative to tolerance spread; unaffected by process centering
+      cpk:
+        type: number
+        required: false
+        description: Process capability index Cpk = min[(USL − X-bar) / 3σ, (X-bar − LSL) / 3σ]; accounts for process centering; lower than Cp when process is off-center
+      ucl_xbar:
+        type: number
+        required: false
+        description: Upper control limit for the X-bar (mean) chart
+      lcl_xbar:
+        type: number
+        required: false
+        description: Lower control limit for the X-bar (mean) chart
+      ucl_r:
+        type: number
+        required: false
+        description: Upper control limit for the R (range) chart
+      lcl_r:
+        type: number
+        required: false
+        description: Lower control limit for the R (range) chart
+      out_of_control_signals:
+        type: string[]
+        required: false
+        description: List of Western Electric rule violations detected in this sample set
+        examples: [["Rule 1: point beyond 3σ at sample 7"], ["Rule 2: 9 consecutive points same side of centerline starting at sample 12"]]
+      calculated_at:
+        type: datetime
+        required: true
+        description: Timestamp when this SPC record was calculated or last recalculated
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_characteristic:
+        target: characteristic
+        cardinality: many-to-one
+        description: defined in schemas/characteristic.yaml
+      for_job:
+        target: job
+        cardinality: many-to-one
+        description: defined in schemas/job.yaml
+      for_inspection_plan:
+        target: inspection_plan
+        cardinality: many-to-one
+        description: defined in schemas/process_engineering.yaml
+
+  ppap_submission:
+    description: >
+      A Production Part Approval Process (PPAP) submission package per AIAG PPAP 4th Edition.
+      Tracks the level of PPAP required by the customer, the reason for submission, approval
+      status, and the 18-element AIAG checklist embedded as an object array. The checklist
+      is always retrieved with its parent record and has no independent identity, so it is
+      embedded rather than normalized to a separate table. ppap_submission references the
+      associated First Article Inspection and customer approval records for traceability.
+      InspectAI owns PPAP workflow execution; the ontology references ppap_submission by ID
+      from the digital thread.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id
+      customer_id:
+        type: uuid
+        required: true
+        description: FK → customer.id (defined in schemas/customer.yaml)
+      ppap_level:
+        type: integer
+        required: true
+        description: >
+          AIAG PPAP submission level 1–5.
+          Level 1: Part Submission Warrant only retained at manufacturer.
+          Level 2: PSW + limited supporting data submitted to customer.
+          Level 3: PSW + complete supporting data submitted to customer (most common).
+          Level 4: PSW + other requirements as defined by customer.
+          Level 5: PSW + complete supporting data reviewed at manufacturer's facility.
+      submission_reason:
+        type: enum
+        required: true
+        values: [InitialSubmission, EngineeringChange, ToolingTransfer, ToolingInactive, ProductionRelocation, SubcontractorChange, MaterialChange, Other]
+        description: >
+          InitialSubmission: first PPAP submission for this part.
+          EngineeringChange: design or process change since last approval.
+          ToolingTransfer: same tooling moved to different location.
+          ToolingInactive: tooling inactive for 12+ months then reactivated.
+          ProductionRelocation: production moved to a different facility or machine.
+          SubcontractorChange: new or changed subcontractor for an outside process.
+          MaterialChange: raw material specification or supplier change.
+          Other: customer-directed or miscellaneous reason.
+      status:
+        type: enum
+        required: true
+        values: [Draft, Submitted, Approved, Rejected, InterimApproval]
+        description: >
+          Draft: PPAP package being assembled; not yet submitted to customer.
+          Submitted: package submitted to customer; awaiting disposition.
+          Approved: customer has issued full approval.
+          Rejected: customer has rejected submission; corrective action required.
+          InterimApproval: customer has granted conditional approval for limited production pending full approval.
+      submitted_date:
+        type: date
+        required: false
+        description: Date the PPAP package was submitted to the customer
+      approved_date:
+        type: date
+        required: false
+        description: Date the customer issued full approval
+      customer_approval_id:
+        type: uuid
+        required: false
+        description: FK → customer_approval.id (defined in schemas/customer_approval.yaml) — the customer approval record associated with this submission
+      first_article_inspection_id:
+        type: uuid
+        required: false
+        description: FK → first_article_inspection.id (defined in schemas/quality.yaml) — the FAI record that supports this PPAP submission
+      checklist_items:
+        type: object[]
+        required: true
+        description: >
+          Embedded AIAG 18-element PPAP checklist. Each item has no independent UUID —
+          it is always retrieved as part of its parent ppap_submission. Elements correspond
+          to the 18 standard AIAG PPAP requirements:
+          1=Design Records, 2=Authorized Engineering Change Documents,
+          3=Customer Engineering Approval, 4=Design FMEA, 5=Process Flow Diagrams,
+          6=Process FMEA, 7=Control Plan, 8=Measurement System Analysis,
+          9=Dimensional Results, 10=Records of Material/Performance Test Results,
+          11=Initial Process Studies, 12=Qualified Laboratory Documentation,
+          13=Appearance Approval Report, 14=Sample Production Parts,
+          15=Master Sample, 16=Checking Aids, 17=Customer-Specific Requirements,
+          18=Part Submission Warrant.
+        item_schema:
+          element_number:
+            type: integer
+            description: AIAG element number 1–18
+          title:
+            type: string
+            description: AIAG element name
+          status:
+            type: enum
+            values: [Required, Submitted, Approved, NotRequired]
+            description: >
+              Required: customer requires this element for this submission.
+              Submitted: element documents have been submitted to the customer.
+              Approved: customer has accepted this element.
+              NotRequired: customer has waived this element for this submission level or part type.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+      for_customer:
+        target: customer
+        cardinality: many-to-one
+        description: defined in schemas/customer.yaml
+      references_fai:
+        target: first_article_inspection
+        cardinality: many-to-one
+        description: defined in schemas/quality.yaml
+      customer_approved_by:
+        target: customer_approval
+        cardinality: many-to-one
+        description: defined in schemas/customer_approval.yaml

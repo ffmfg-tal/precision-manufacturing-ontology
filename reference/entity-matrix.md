@@ -1,6 +1,6 @@
 # Entity Matrix — Precision Manufacturing Ontology Coherence Pass
 
-Generated: 2026-04-22 (Task 6); updated Phase 3.2 (2026-04-22), Phase 3.3 (2026-04-22), Phase 3.4 (2026-04-23).
+Generated: 2026-04-22 (Task 6); updated Phase 3.2 (2026-04-22), Phase 3.3 (2026-04-22), Phase 3.4 (2026-04-23), Phase 2 (2026-04-24), InspectAI (2026-04-24).
 Sources: `reference/entity-inventory.yaml` (82 entities), `reference/composition-archetypes.md` (required fields per archetype), all files in `extensions/`, all files in `schemas/`, `standards/*.md`, `reference/domain-map.md`, `reference/carbon-os-mapping.md`.
 
 Glyphs: ✅ green · 🟡 yellow · 🔴 red · ⬜ missing-but-N/A (green-equivalent where the dimension does not apply)
@@ -14,6 +14,8 @@ The ontology's strength is narrative and compositional: every archetype walks en
 **Phase 3.4 update (2026-04-23).** Phase 3.4 completed assembly-domain schema authoring: `schemas/assembly.yaml` (torque_specification, torque_sequence, torque_readings_record, witness_inspection, kit_record) and `schemas/inspection.yaml` (inspection_event, calibration_record, tool_gauge, key_characteristic). Three entities resolved as aliases/covered: fai_package → certification_package; quality_engineer → user.role; process_identification → material_identification callout_type. Schema defined now at 73 ✅ / 9 🔴. State machine added for tool_gauge (10 transitions, Current/Due_Soon/Overdue/Quarantined/Retired); calibration_record lifecycle corrected to ⬜ (immutable record; lifecycle on tool_gauge). Phase 3.3 (2026-04-22) completed state machine enumeration for material_lot, first_article_inspection, nonconformance_report, outside_process_operation, purchase_order, customer_purchase_order.
 
 **Phase 2 update (2026-04-24).** Added Domains 9–12 (Process Engineering/NRE, Tool Room, Packaging, Change Management) plus Assembly Hardware and Operator Qualification cross-domain extensions. Entity count increases from 82 to 117. Five Phase 3.4 schema fixes applied: kit_record, torque_readings_record, torque_sequence, torque_specification, witness_inspection now correctly reference schemas/assembly.yaml; calibration_record, inspection_event, key_characteristic, tool_gauge now correctly reference schemas/inspection.yaml. Four new composition archetype walks added (Walks 4–7: calibration recall, ECN mid-production, fixture lifecycle, concurrent revision production).
+
+**InspectAI update (2026-04-24).** Reviewed InspectAI (Lino's quality/FAI app, React 19 + CF Pages + Hono + D1) against the ontology. Six new entities derived: `characteristic` (all drawing callouts, not just KCs; maps InspectAI's AI-extraction pipeline), `measurement_result` (per-reading dimensional result — resolves a critical naming conflict: `pmi_event` is XRF/OES chemistry only, not dimensional measurements), `fmea_item` (AIAG PFMEA rows), `control_plan_item` (AIAG APQP control plan rows), `spc_result` (Cp/Cpk cached statistics), `ppap_submission` (AIAG PPAP 4th Edition 18-element submission). Three existing schemas updated: `inspection_event` gained `setup_number` attribute and `produces_measurement_results` relationship (pmi_events description corrected); `key_characteristic` gained `characteristic_id` FK; `first_article_inspection` gained `ppap_level` and `ppap_submission_id`; `inspection_plan` gained `fmea_document_id` and `control_plan_document_id`. Entity count increases to 123.
 
 **Weakest columns.** Cross-ref integrity remains the weakest column: most Phase 2–4 entities have not been added to the UUID entity table in `extensions/uuid-discipline.md`. State machine has 2 remaining 🔴: quality_flowdown_plan (schema present, status field addition needed before graph can be written) and one other. Relationships typed is now all-green on schema-defined entities; the 🟡 cluster is aliases and display nodes.
 
@@ -32,7 +34,7 @@ The ontology's strength is narrative and compositional: every archetype walks en
 
 ## Matrix
 
-Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 117 (82 original + 35 added Phase 2; includes `receipt` and `work_order` added Phase 2.C/2.E; `approved_supplier_list_entry` and `supplier_qualification_event` renamed Phase 2.E).
+Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 123 (82 original + 35 added Phase 2 + 6 InspectAI-derived: `characteristic`, `measurement_result`, `fmea_item`, `control_plan_item`, `spc_result`, `ppap_submission`).
 
 ---
 
@@ -192,6 +194,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Nested: `contains_packages[]` for child cert packages + `contains_documents[]` per decision 1.9. |
 | Canonical framing | ✅ | Own terms. |
 
+### characteristic
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/characteristic.yaml` (InspectAI-derived) |
+| Attributes complete | ✅ | char_number, balloon_number, tolerance_type (18-value enum covering all ASME Y14.5 callout classes), nominal, upper/lower tolerance, gdt_symbol, gdt_datums[], feature_type, view_name, unit, is_critical, source [AI_Extracted/Manual/CMM_Imported], extraction_confidence. |
+| Relationships typed | ✅ | `on_part → part` (many-to-one), `for_specification → part_specification` (many-to-one), `in_inspection_plan → inspection_plan` (many-to-one), `elevates_kc → key_characteristic` (one-to-one, optional), `has_measurements → measurement_result` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | ASME Y14.5-2018 GD&T taxonomy and STEP AP242 PMI cover the design side; QIF Resources covers measurement characteristics. Schema maps both; explicit QIF field-level mapping pending. |
+| Composition rule | ✅ | First-class entity: one record per drawing callout per part_specification revision; is_critical elevates to key_characteristic via optional one-to-one link. |
+| Canonical framing | ✅ | Own terms; tolerance_type enum derived from ASME Y14.5 callout class taxonomy. |
+
 ### characteristic_measurement
 
 | Dimension | Status | Note |
@@ -243,6 +258,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | DFARS 252.225-7052 cited; not mapped as a Layer-1 standard entity. |
 | Composition rule | ✅ | Alias of `certification_document` (cert_type: ConflictMineral) per decision 1.6; discriminator in `schemas/certification_document.yaml`. |
 | Canonical framing | ✅ | DFARS terms. |
+
+### control_plan_item
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/quality_tools.yaml` (InspectAI-derived) |
+| Attributes complete | ✅ | process_step, characteristic_id FK (optional), char_description, control_type [Critical/Major/Minor], evaluation_measurement_technique, sample_size, sample_frequency, control_method, reaction_plan, nre_package_id, part_id. |
+| Relationships typed | ✅ | `for_characteristic → characteristic` (many-to-one, optional), `for_part → part` (many-to-one), `in_nre_package → nre_package` (many-to-one); cardinality specified. |
+| State machine | ⬜ | Not lifecycle-bearing. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table. |
+| Standards provenance | ✅ | AIAG APQP Control Plan format; maps to AIAG 4th Edition APQP control plan columns. |
+| Composition rule | ✅ | One row per controlled characteristic per operation; aggregate set constitutes the AIAG APQP control plan for a part. |
+| Canonical framing | ✅ | AIAG APQP terms. |
 
 ### country
 
@@ -465,6 +493,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Join table: links routing operation to fixture part (part_kind = fixture); required flag distinguishes mandatory from alternative fixturing. |
 | Canonical framing | ✅ | Own terms. |
 
+### fmea_item
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/quality_tools.yaml` (InspectAI-derived) |
+| Attributes complete | ✅ | fmea_type [PFMEA/DFMEA], process_step, potential_failure_mode, potential_effect, severity (1–10), potential_cause, occurrence (1–10), current_controls, detection (1–10), rpn, recommended_action, responsible_id, target_date, actions_taken, new_severity/occurrence/detection, new_rpn, part_id, nre_package_id. |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `in_nre_package → nre_package` (many-to-one), `responsible → user` (many-to-one); cardinality specified. |
+| State machine | ⬜ | Not lifecycle-bearing (action tracking via new_rpn and actions_taken). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table. |
+| Standards provenance | ✅ | AIAG PFMEA format (AIAG-VDA FMEA Handbook, 2019); S/O/D rating scales map to AIAG definitions. |
+| Composition rule | ✅ | One row per failure mode per process step; aggregate set constitutes the AIAG PFMEA for a part or assembly. |
+| Canonical framing | ✅ | AIAG FMEA terms. |
+
 ### gauge_definition
 
 | Dimension | Status | Note |
@@ -686,6 +727,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Container of conditions[], types[], classes[]; cross-reference peer links. |
 | Canonical framing | ✅ | Own terms; Carbon has no spec entity. |
 
+### measurement_result
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/measurement_result.yaml` (InspectAI-derived; resolves pmi_event naming conflict — dimensional measurements are here, not in pmi_event which covers XRF/OES chemistry only) |
+| Attributes complete | ✅ | inspection_event_id, characteristic_id, actual_value, actual_value_text, deviation (signed), conformance [Pass/Fail/Conditional/Pending/NA], sample_number, setup_number, source_type [CMM/Operator/Manual/VisionSystem/AutomatedGauge], equipment_id → tool_gauge, machine_id → work_center, operator_id → user, measured_at. |
+| Relationships typed | ✅ | `in_session → inspection_event` (many-to-one), `for_characteristic → characteristic` (many-to-one), `with_equipment → tool_gauge` (many-to-one, optional), `at_machine → work_center` (many-to-one, optional), `by_operator → user` (many-to-one); cardinality specified. |
+| State machine | ⬜ | Not lifecycle-bearing; conformance enum captures result at creation. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table. |
+| Standards provenance | 🟡 | QIF Results module covers per-characteristic measurement results; schema maps QIF concepts via inspection_event and characteristic FKs. |
+| Composition rule | ✅ | One record per sample per characteristic per inspection session; immutable once created (production evidence). |
+| Canonical framing | ✅ | Own terms; resolves the pmi_event/measurement_result naming distinction explicitly in schema header. |
+
 ### mrb_disposition
 
 | Dimension | Status | Note |
@@ -906,6 +960,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | ASTM/Nadcap MTL references; not mapped. |
 | Composition rule | ✅ | Alias of `certification_document` (cert_type: PMI_Report) per decision 1.6; discriminator in `schemas/certification_document.yaml`. |
 | Canonical framing | ✅ | Own terms. |
+
+### ppap_submission
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/quality_tools.yaml` (InspectAI-derived) |
+| Attributes complete | ✅ | part_id, first_article_inspection_id FK, ppap_level (1–5), submission_reason [New_Part/Design_Change/Process_Change/Source_Change/Production_Lapse], status [Draft/Submitted/Approved/Rejected/InterimApproval], submitted_by_id, submitted_date, customer_approval_date, customer_approval_number, checklist_items[] (18 AIAG PPAP elements as embedded array). |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `linked_fai → first_article_inspection` (many-to-one, optional), `submitted_by → user` (many-to-one); cardinality specified. |
+| State machine | 🟡 | Status enum present (Draft/Submitted/Approved/Rejected/InterimApproval); state machine graph not yet authored. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table. |
+| Standards provenance | ✅ | AIAG PPAP 4th Edition; 18-element checklist maps directly to AIAG PPAP required elements per level. |
+| Composition rule | ✅ | Top-level submission envelope; checklist_items[] embeds the 18-element manifest as immutable JSONB once submitted. |
+| Canonical framing | ✅ | AIAG PPAP terms. |
 
 ### press_fit_record
 
@@ -1153,6 +1220,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | No standard covers inbound (X12 856 is outbound); receipt side is X12 861. |
 | Composition rule | ✅ | Alias of `shipment` with `direction: inbound` per decision 1.5; schema Phase 2.E. |
 | Canonical framing | ✅ | Own terms. |
+
+### spc_result
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/quality_tools.yaml` (InspectAI-derived) |
+| Attributes complete | ✅ | characteristic_id FK, job_id (optional), inspection_plan_id (optional), sample_count, mean, std_dev, cp, cpk, ucl, lcl, x_bar_ucl, x_bar_lcl, r_ucl, r_lcl, out_of_control_signals[], calculated_at, notes. |
+| Relationships typed | ✅ | `for_characteristic → characteristic` (many-to-one), `for_job → job` (many-to-one, optional), `for_inspection_plan → inspection_plan` (many-to-one, optional); cardinality specified. |
+| State machine | ⬜ | Not lifecycle-bearing; recalculated as new measurement_result records are added (schema notes recalculation behavior). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table. |
+| Standards provenance | 🟡 | SPC methodology per AIAG SPC Manual 3rd Edition; Cp/Cpk formulas are industry-standard; specific standard reference in schema. |
+| Composition rule | ✅ | Cached statistics record scoped to characteristic + optional job or inspection plan; not an immutable record — recalculated as sample population grows. |
+| Canonical framing | ✅ | AIAG SPC terms. |
 
 ### spec_body
 

@@ -291,6 +291,26 @@ No Layer-1 standard defines ECN or deviation/waiver as data entities. AS9100 §8
 
 ---
 
+### InspectAI-Derived Additions (Quality + Inspection Layer, 2026-04-24)
+
+Derived from a review of **InspectAI** (Lino's quality and FAI app; React 19, Cloudflare Pages/Workers, D1, Anthropic SDK). Six entities added; three existing schemas updated.
+
+**Characteristic** (`schemas/characteristic.yaml`) — full drawing callout entity covering all ASME Y14.5 callout types extracted from a part specification revision. More complete than `key_characteristic` (KCs only); `characteristic` covers all 18 tolerance types including datums and notes. The `is_critical` flag elevates to `key_characteristic`. Maps InspectAI's AI-extraction pipeline where Claude analyzes engineering drawings and scores all bubbled callouts with `extraction_confidence`.
+
+**Measurement Result** (`schemas/measurement_result.yaml`) — per-reading dimensional measurement result; one record per sample per characteristic per inspection session. Critically distinct from `pmi_event`, which covers Positive Material Identification (XRF/OES alloy chemistry tests) only. Resolves a naming conflict in the earlier draft where `inspection_event.produces_pmi_events` incorrectly described dimensional measurements.
+
+**AIAG Quality Tools** (`schemas/quality_tools.yaml`) — four entities:
+- `fmea_item` — PFMEA/DFMEA row (AIAG-VDA FMEA Handbook 2019); Severity/Occurrence/Detection ratings and RPN
+- `control_plan_item` — AIAG APQP control plan row per characteristic per operation step
+- `spc_result` — cached Cp/Cpk statistics per characteristic; recalculated as `measurement_result` records accumulate
+- `ppap_submission` — AIAG PPAP 4th Edition submission (levels 1–5) with 18-element checklist
+
+**Schema updates:** `inspection_event` gained `setup_number` and `produces_measurement_results` relationship (pmi_events description corrected); `key_characteristic` gained `characteristic_id` FK; `first_article_inspection` gained `ppap_level` and `ppap_submission_id`; `inspection_plan` gained `fmea_document_id` and `control_plan_document_id`.
+
+**Calibration traceability gap noted:** InspectAI's `gage_inventory` table tracks current gauge state but has no per-event calibration record. AS9100 §7.1.5.2 requires immutable per-event evidence. The ontology's `calibration_record` (`schemas/inspection.yaml`) models this correctly; InspectAI will need to adopt this pattern for AS9100 compliance.
+
+---
+
 ## UUID Discipline
 
 UUID is the connective tissue across all layers. Every entity in the digital thread has a UUID v4 identifier, minted by the production system Pro, that persists as the entity moves through format translations:

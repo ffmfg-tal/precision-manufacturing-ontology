@@ -352,6 +352,15 @@ entities:
               measurement_date:
                 type: date
                 nullable: true
+      # PPAP linkage (when customer requires PPAP alongside FAI)
+      ppap_level:
+        type: integer
+        required: false
+        description: AIAG PPAP submission level (1–5) required by this customer for this part; null when PPAP is not required
+      ppap_submission_id:
+        type: uuid
+        required: false
+        description: FK → ppap_submission.id — links this FAI to the associated PPAP submission package (schemas/quality_tools.yaml)
       # FAI completeness flags
       form1_complete:
         type: boolean
