@@ -1,0 +1,367 @@
+# schemas/packaging.yaml
+#
+# Layer-1 coverage: No Layer-1 manufacturing data standard defines packaging as a traceable
+# operation with a data schema. MIL-STD-2073 defines preservation requirements (Level A/B/C)
+# but is a requirements document, not a data model. AS9100 §8.5.4 mandates preservation of
+# conformity during packaging and delivery but specifies no record structure. X12 856 (ASN)
+# carries shipment logistics but no packaging execution evidence.
+#
+# This schema closes the gap between the preservation requirement (MIL-STD-2073) and the
+# shipment record (schemas/shipment.yaml) by defining:
+#   packaging_specification — the governing document for how a part/assembly must be packaged
+#   packing_record          — the execution instance: evidence that a serial/lot was packaged
+#                             per spec, immutable after inspector sign-off
+#   packaging_item          — a single packaging component line within a packing record,
+#                             with lot/batch traceability of the packaging material
+#
+# Prose source: extensions/packaging.md
+# Cluster: Quality / Shipment (bridges Supply Chain and Quality)
+# Sibling schemas: schemas/shipment.yaml (packing_record.shipment_id),
+#                  schemas/part.yaml (subject FK; packaging_insert_part_id; part_kind: packaging_insert),
+#                  schemas/job.yaml (serial_number entity referenced by packing_record.serial_id),
+#                  schemas/material.yaml (material_lot entity referenced by packing_record.lot_id)
+#
+# Architectural decisions:
+#   Decision 2.1: Packaging inserts are part entities (part_kind: packaging_insert), not
+#                 a separate entity type. packaging_insert is a companion addition required
+#                 in schemas/part.yaml part_kind enum (not yet present).
+#   Decision 2.2: Subject polymorphism via subject_type discriminator — follows Decision 1.9;
+#                 same pattern used by first_article_inspection, nonconformance_report.
+#   Decision 2.3: packing_record is immutable after inspector sign-off; rework creates a
+#                 new record, preserving the full packaging attempt history.
+#   Decision 2.4: packaging_item is a first-class entity (not a nested array) to support
+#                 independent lot traceability, part FK for inserts, and queryability.
+#   Decision 2.5: packing_record links to shipment.id (not job.id directly); job traceability
+#                 is available transitively via shipment.job_id.
+#   Decision 2.6: preservation_level: None is an explicit enum value (not null) to distinguish
+#                 commercial packaging from an incomplete spec.
+#
+# Entities: packaging_specification, packing_record, packaging_item
+
+entities:
+
+  packaging_specification:
+    description: >
+      The governing document defining how a part or assembly must be packaged. Specifies
+      the MIL-STD-2073 preservation level (A, B, C, or commercial), moisture barrier,
+      ESD protection, desiccant, humidity indicator, quantity limits per bag/box, labeling
+      standard, and optional manufactured packaging insert. One specification per
+      part+revision or assembly+revision; a new spec revision is issued when requirements
+      change. Subject is polymorphic (part or assembly) per Decision 2.2.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the packaging specification record is created
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — the part or assembly this spec governs (discriminated by subject_type)
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: >
+          Discriminator per Decision 2.2 (follows Decision 1.9). Determines whether subject_id
+          resolves to part.id or assembly.id.
+      revision:
+        type: string
+        required: true
+        description: Packaging specification revision; may advance independently of the part or assembly drawing revision
+        examples: ["A", "B", "1", "2"]
+      preservation_level:
+        type: enum
+        required: true
+        values: [A, B, C, None]
+        description: >
+          MIL-STD-2073 preservation level.
+          A = Level A: heat-sealed poly bag, desiccant (MIL-D-3464), humidity indicator card,
+              sealed moisture barrier bag (MIL-PRF-22191), outer box. For extended storage and
+              severe environmental exposure.
+          B = Level B: moderate storage protection; less stringent than Level A.
+          C = Level C: spot-pack; domestic short-duration storage or transit.
+          None = commercial packaging per customer instruction (customer_packaging_spec_ref governs).
+          Per Decision 2.6, None is an explicit enum value, not null.
+      moisture_barrier_required:
+        type: boolean
+        required: true
+        description: True if a sealed moisture barrier bag (e.g., MIL-PRF-22191 Type I) is required
+      esd_protection_required:
+        type: boolean
+        required: true
+        description: True if ESD shielding bag is required (static-sensitive components)
+      desiccant_required:
+        type: boolean
+        required: true
+        description: True if desiccant units are required inside the moisture barrier (type per MIL-D-3464)
+      humidity_indicator_required:
+        type: boolean
+        required: true
+        description: True if a humidity indicator card (HIC) is required inside the moisture barrier
+      max_pieces_per_bag:
+        type: integer
+        required: false
+        description: Maximum number of pieces allowed in a single inner bag; omit if no limit
+      max_pieces_per_box:
+        type: integer
+        required: false
+        description: Maximum number of pieces allowed in a single shipping box; omit if no limit
+      labeling_standard:
+        type: string
+        required: false
+        description: Labeling standard governing the shipping label content and format
+        examples: ["MIL-STD-129", "MIL-STD-130", "customer spec", "ANSI MH10.8"]
+      special_handling_notes:
+        type: string
+        required: false
+        description: >
+          Free-text special handling instructions beyond the preservation level, e.g.,
+          "Do not stack", "Keep dry — absorptive material", "Fragile — machined fins"
+      customer_packaging_spec_ref:
+        type: string
+        required: false
+        description: >
+          Reference to a customer-supplied packaging specification document, e.g.,
+          "Rocket Lab PKG-0042 Rev B" or "Lockheed Martin LMA-PKG-1234". Required
+          when preservation_level = None; provides the governing document reference.
+      packaging_insert_part_id:
+        type: uuid
+        required: false
+        description: >
+          FK → part.id where part.part_kind = packaging_insert. References a 3D-printed
+          or machined custom insert that is part of the packaging design. The insert is a
+          full part entity with its own part number and drawing per Decision 2.1.
+          Note: packaging_insert is a companion addition to the part_kind enum in
+          schemas/part.yaml (not yet present in that file's current enum values).
+      approved_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — quality engineer who approved this packaging specification
+      approved_date:
+        type: date
+        required: false
+        description: Date of quality engineer approval
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part this spec governs (when subject_type = part)
+      for_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: Assembly this spec governs (when subject_type = assembly)
+      uses_insert:
+        target: part
+        cardinality: many-to-one
+        description: Manufactured packaging insert (part_kind = packaging_insert) referenced by this spec
+      approved_by:
+        target: user
+        cardinality: many-to-one
+        description: Quality engineer who approved this spec
+      packing_records:
+        target: packing_record
+        cardinality: one-to-many
+        description: All packing records that executed against this specification
+
+  packing_record:
+    description: >
+      The execution instance of a packaging specification: evidence that a specific
+      serial number or lot was packaged in conformance with its governing spec. Created
+      when packaging begins; finalized and made immutable when an inspector signs off
+      (inspected_by_id + inspection_date populated, result = Pass). Per Decision 2.3,
+      any rework after sign-off creates a new packing record — the original is never
+      mutated. Links to the outbound shipment it supports (not to the job directly;
+      job traceability is available via shipment.job_id per Decision 2.5).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the packing record is created at start of packaging
+      shipment_id:
+        type: uuid
+        required: true
+        description: >
+          FK → shipment.id — the outbound shipment this packaging record supports.
+          The shipment entity is defined in schemas/shipment.yaml.
+      packaging_specification_id:
+        type: uuid
+        required: true
+        description: FK → packaging_specification.id — the governing specification for this packing event
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → part.id or assembly.id — what was packaged (discriminated by subject_type)
+      subject_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        description: Discriminator per Decision 2.2; must match packaging_specification.subject_type
+      serial_id:
+        type: uuid
+        required: false
+        description: >
+          FK → serial_number.id — the specific serialized unit packaged. serial_number is
+          defined in schemas/job.yaml. Populate for serialized parts; omit for lot-controlled only.
+      lot_id:
+        type: uuid
+        required: false
+        description: >
+          FK → material_lot.id — the lot packaged. material_lot is defined in
+          schemas/material.yaml. Populate for lot-controlled parts; omit for serialized only.
+      quantity_packed:
+        type: integer
+        required: true
+        description: Number of pieces covered by this packing record
+      packed_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — operator who performed the packaging operation
+      packed_date:
+        type: date
+        required: true
+        description: Date the packaging was performed
+      inspected_by_id:
+        type: uuid
+        required: false
+        description: >
+          FK → user.id — quality inspector who verified the packaging. Once populated
+          together with inspection_date and result = Pass, this record becomes immutable
+          per Decision 2.3.
+      inspection_date:
+        type: date
+        required: false
+        description: Date the quality inspector signed off on this packing record
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Rework]
+        description: >
+          Pass = packaging conforms to specification; record is immutable after inspector sign-off.
+          Fail = packaging did not conform; will not ship.
+          Rework = packaging was reworked after a prior Fail or Pass; a new packing record
+                   covers the replacement packaging event.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_shipment:
+        target: shipment
+        cardinality: many-to-one
+        description: Outbound shipment this packing record supports; defined in schemas/shipment.yaml
+      governed_by:
+        target: packaging_specification
+        cardinality: many-to-one
+        description: Packaging specification that defines the requirements for this packing event
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part that was packaged (when subject_type = part)
+      for_assembly:
+        target: assembly
+        cardinality: many-to-one
+        description: Assembly that was packaged (when subject_type = assembly)
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+        description: Serialized unit packaged; serial_number defined in schemas/job.yaml
+      for_lot:
+        target: material_lot
+        cardinality: many-to-one
+        description: Lot packaged; material_lot defined in schemas/material.yaml
+      packed_by:
+        target: user
+        cardinality: many-to-one
+        description: Operator who performed the packaging operation
+      inspected_by:
+        target: user
+        cardinality: many-to-one
+        description: Quality inspector who verified and signed off the packaging
+      has_items:
+        target: packaging_item
+        cardinality: one-to-many
+        description: Packaging component lines consumed in this packing event
+
+  packaging_item:
+    description: >
+      A single packaging component used in a packing record — one entity per distinct
+      component type within a packing event. Provides material-level traceability: which
+      specific bag, desiccant unit, humidity indicator card, ESD bag, box, label, foam,
+      or custom insert was used, including the lot or batch number of the packaging
+      material for supplier traceability. Per Decision 2.4, packaging_item is a
+      first-class entity (not a nested array on packing_record) to support independent
+      lot traceability, FK to manufactured insert parts, and queryability by material lot.
+      When item_type = CustomInsert, part_id links to the manufactured insert part entity.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the packaging item line is recorded
+      packing_record_id:
+        type: uuid
+        required: true
+        description: FK → packing_record.id — the packing event this item belongs to
+      item_type:
+        type: enum
+        required: true
+        values: [Bag, Box, DesiccantUnit, HumidityIndicator, VCIBag, ESDShielding, Label, Foam, CustomInsert, Other]
+        description: >
+          Bag = inner poly bag or moisture barrier bag (heat-sealed).
+          Box = outer shipping container.
+          DesiccantUnit = desiccant unit per MIL-D-3464.
+          HumidityIndicator = humidity indicator card (HIC), e.g., 3-spot or 5-spot.
+          VCIBag = volatile corrosion inhibitor bag (for ferrous parts).
+          ESDShielding = ESD shielding bag or wrap (for static-sensitive parts).
+          Label = shipping label (e.g., MIL-STD-129, MIL-STD-130, barcode label).
+          Foam = foam padding, cushioning insert, or foam-in-place.
+          CustomInsert = manufactured packaging insert; part_id must be populated (FK → part.id,
+                         part_kind = packaging_insert).
+          Other = any packaging component not covered by the above.
+      part_id:
+        type: uuid
+        required: false
+        description: >
+          FK → part.id — the manufactured packaging insert or other part-number-traceable
+          packaging component. Must be populated when item_type = CustomInsert. The
+          referenced part entity has part_kind = packaging_insert per Decision 2.1.
+      description:
+        type: string
+        required: true
+        description: >
+          Human-readable description of the specific packaging material used.
+        examples:
+          - "4×8 heat-sealed poly bag, 4-mil"
+          - "2-unit desiccant per MIL-D-3464 Type I"
+          - "humidity indicator card, 3-spot (10/20/30%), MIL-I-8835"
+          - "MIL-PRF-22191 Type I moisture barrier bag, 12×16"
+          - "24×18×6 cardboard outer box, 200 lb ECT"
+          - "MIL-STD-129 label, 4×6 thermal"
+          - "1/2-in closed-cell polyethylene foam liner"
+      quantity:
+        type: integer
+        required: true
+        description: Number of this item used in this packing event
+      lot_or_batch:
+        type: string
+        required: false
+        description: >
+          Lot or batch number of the packaging material, for supplier traceability.
+          Enables queries such as "find all shipments that used desiccant lot MDD-2024-08."
+        examples: ["24-B-0042", "MDD-2024-08", "HIC-2024-11", "PRF-24-0091"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_record:
+        target: packing_record
+        cardinality: many-to-one
+        description: Packing record this item line belongs to
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Manufactured packaging insert or other part-number-traceable packaging component

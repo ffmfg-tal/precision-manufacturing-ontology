@@ -9,7 +9,8 @@
 #
 # Architectural decisions:
 #   Decision 1.1: assembly is a DISTINCT entity from part; no shared supertype
-#   Decision 1.2: part.part_kind enum (machined | fastener | raw_stock | purchased_assembly | consumable)
+#   Decision 1.2: part.part_kind enum (machined | fastener | raw_stock | purchased_assembly | consumable |
+#                 fixture | insert | pin | packaging_insert)
 #   Decision 1.9: item REMOVED from canon; part | assembly is the typed union used by
 #                 first_article_inspection, nonconformance_report, etc.
 #
@@ -49,11 +50,14 @@ entities:
       part_kind:
         type: enum
         required: true
-        values: [machined, fastener, raw_stock, purchased_assembly, consumable]
+        values: [machined, fastener, raw_stock, purchased_assembly, consumable, fixture, insert, pin, packaging_insert]
         description: >
           Classification of the part type. machined = CNC/EDM/grind; fastener = bolt/nut/pin/rivet;
           raw_stock = material in its as-received form; purchased_assembly = OTS assembly (e.g., bearing);
-          consumable = O-ring, shim, label.
+          consumable = O-ring, shim, label; fixture = workholding fixture, jig, or soft jaw (serialized,
+          tracked by tool room); insert = threaded insert (helicoil, keensert, nutplate) installed in a
+          parent part; pin = interference-fit dowel or roll pin installed in a parent part;
+          packaging_insert = 3D-printed or machined packaging form (tracked as a manufactured part).
       description:
         type: string
         required: false

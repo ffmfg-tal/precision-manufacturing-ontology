@@ -1,0 +1,293 @@
+# schemas/change_management.yaml
+#
+# Layer-1 coverage: AS9100 §8.3.6 requires documented engineering change control.
+# AS9100 §8.7.1 requires documented control of nonconforming output, including
+# obtaining deviations and waivers from customers or authorized bodies. Neither
+# AS9100 nor any Layer-1 data standard (STEP AP238, MTConnect, X12 EDI) defines
+# data entities for engineering change notices or deviation/waiver authorizations.
+#
+# Prose source: extensions/change-management.md
+#
+# Cross-schema references:
+#   nonconformance_report → schemas/quality.yaml
+#   serial_number         → schemas/job.yaml
+#   material_lot          → schemas/material.yaml
+#   customer_approval     → schemas/customer_approval.yaml
+#   part_specification    → schemas/part.yaml
+#   routing               → schemas/routing.yaml
+#
+# Entities: engineering_change_notice, deviation_waiver
+
+entities:
+
+  engineering_change_notice:
+    description: >
+      Authorizes a change to a part number's drawing revision, routing version,
+      material, process, or governing specification. Records the authorization,
+      affected revisions, and approvals — it does not model the cascade logic
+      (revision creation, routing versioning, in-flight job evaluation). Those are
+      production system operations that the ECN authorizes. AS9100 §8.3.6 requires
+      documented engineering change control; this entity is the data record for that
+      requirement.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the ECN record is created
+      ecn_number:
+        type: string
+        required: true
+        description: Human-readable ECN identifier
+        examples: ["ECN-2026-0042", "ECN-2025-0001"]
+      title:
+        type: string
+        required: true
+        description: Short description of the change
+        examples: ["Rev A → Rev B: tighten flange bore tolerance", "Substitute 17-4 PH H900 for H925 condition"]
+      description:
+        type: string
+        required: true
+        description: Full change description — what changed and why
+      change_type:
+        type: enum
+        required: true
+        values: [Drawing, Routing, Material, Process, Specification]
+        description: Primary classification of the change
+      initiator_id:
+        type: uuid
+        required: true
+        description: FK → user.id — person who initiated the ECN
+      initiated_date:
+        type: date
+        required: true
+      status:
+        type: enum
+        required: true
+        values: [Draft, UnderReview, Approved, Rejected, Cancelled, Released]
+        description: >
+          Draft: in preparation. UnderReview: under engineering/customer review.
+          Approved: authorized but not yet in production. Released: effective in
+          production — new routing drives job creation. Rejected/Cancelled: terminal states.
+      approved_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — internal approver (engineering manager, quality manager)
+      approved_date:
+        type: date
+        required: false
+      effective_date:
+        type: date
+        required: false
+        description: Date the change goes into production — jobs created on or after this date use the new revision
+      affected_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the part whose controlling documents are changing
+      old_part_specification_id:
+        type: uuid
+        required: false
+        description: FK → part_specification.id — the revision being superseded; null for new parts
+      new_part_specification_id:
+        type: uuid
+        required: false
+        description: FK → part_specification.id — the new revision; populated when the new revision is minted
+      old_routing_id:
+        type: uuid
+        required: false
+        description: FK → routing.id — the routing being obsoleted; null if routing is unchanged
+      new_routing_id:
+        type: uuid
+        required: false
+        description: FK → routing.id — the new routing version; null if routing is unchanged
+      customer_notification_required:
+        type: boolean
+        required: true
+        description: True if the customer's quality flowdown requires notification of this change type
+      customer_approval_required:
+        type: boolean
+        required: true
+        description: True if the customer must affirmatively approve before the change is implemented
+      customer_approval_id:
+        type: uuid
+        required: false
+        description: FK → customer_approval.id — populated if customer_approval_required is true
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      initiated_by:
+        target: user
+        cardinality: many-to-one
+        description: User who initiated the ECN
+      approved_by:
+        target: user
+        cardinality: many-to-one
+        description: Internal approver
+      affects_part:
+        target: part
+        cardinality: many-to-one
+        description: Part whose controlling documents are changing
+      supersedes_spec:
+        target: part_specification
+        cardinality: many-to-one
+        description: Old revision being superseded
+      introduces_spec:
+        target: part_specification
+        cardinality: many-to-one
+        description: New revision introduced by this change
+      obsoletes_routing:
+        target: routing
+        cardinality: many-to-one
+        description: Old routing being obsoleted
+      introduces_routing:
+        target: routing
+        cardinality: many-to-one
+        description: New routing version introduced by this change
+      requires_customer_approval:
+        target: customer_approval
+        cardinality: many-to-one
+        description: Customer approval record if customer authorization was required
+
+  deviation_waiver:
+    description: >
+      Customer or DER authorization document permitting nonconforming material to be
+      used or accepted. Covers two cases distinguished by document_type:
+        Deviation — pre-production authorization to produce/use material deviating
+          from spec for a specific lot or quantity. Issued before production.
+        Waiver — post-production acceptance of nonconforming material that has
+          already been produced. References an NCR.
+      The approved_by field is a free-text string (not a FK) because the approving
+      authority is external — a customer quality rep by name/title, or a DER by
+      certificate number. AS9100 §8.7.1 requires documented concessions; this entity
+      is the data record for that requirement.
+      Distinct from nonconformance_report (schemas/quality.yaml): the NCR is the
+      internal quality record capturing the finding and disposition. The deviation/waiver
+      is the external authorization document. A waiver references an NCR; an NCR may
+      trigger a waiver request.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the deviation/waiver record is created
+      dw_number:
+        type: string
+        required: true
+        description: Human-readable deviation or waiver identifier
+        examples: ["DEV-2026-0007", "WAI-2026-0003"]
+      document_type:
+        type: enum
+        required: true
+        values: [Deviation, Waiver]
+        description: >
+          Deviation: pre-production authorization (before production begins).
+          Waiver: post-production acceptance (after nonconforming articles are produced).
+      description:
+        type: string
+        required: true
+        description: Description of the condition being deviated from or waived
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the part subject to the deviation or waiver
+      part_specification_id:
+        type: uuid
+        required: false
+        description: FK → part_specification.id — the drawing revision in scope
+      serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — serialized scope if the deviation covers specific serial numbers (defined in schemas/job.yaml)
+      lot_id:
+        type: uuid
+        required: false
+        description: FK → material_lot.id — lot scope if the deviation covers a material lot (defined in schemas/material.yaml)
+      quantity_affected:
+        type: integer
+        required: false
+        description: Number of articles covered by this authorization
+      ncr_id:
+        type: uuid
+        required: false
+        description: FK → nonconformance_report.id — the NCR documenting the nonconformance; typically populated for waivers (defined in schemas/quality.yaml)
+      nonconformance_description:
+        type: string
+        required: true
+        description: Description of the specific nonconforming condition (dimension out of tolerance, wrong material condition, etc.)
+      proposed_disposition:
+        type: string
+        required: true
+        description: What will be done with the nonconforming article (use-as-is, rework to drawing, scrap)
+        examples: ["Use as-is — functional analysis confirms margin adequate", "Rework: blend to 0.005 max", "Accept with 100% inspection"]
+      initiator_id:
+        type: uuid
+        required: true
+        description: FK → user.id — quality engineer or engineer who initiated the request
+      initiated_date:
+        type: date
+        required: true
+      status:
+        type: enum
+        required: true
+        values: [Draft, Submitted, Approved, Rejected, Expired]
+        description: >
+          Draft: in preparation. Submitted: transmitted to customer or DER.
+          Approved: customer/DER authorization received.
+          Rejected: customer/DER declined — article must be reworked or scrapped.
+          Expired: expiry_date reached or expiry_quantity consumed.
+      approved_by:
+        type: string
+        required: false
+        description: >
+          External approver — customer representative name and title, or DER FAA
+          certificate number. Free-text string because the approver is external
+          and has no internal user record.
+        examples: ["John Smith, Quality Director, Lockheed Martin", "DER #12345, FAA cert 2024-09-30"]
+      approved_date:
+        type: date
+        required: false
+      expiry_date:
+        type: date
+        required: false
+        description: Date after which the deviation is no longer valid; null = no time limit
+      expiry_quantity:
+        type: integer
+        required: false
+        description: Maximum number of articles that may be produced or accepted under this authorization; null = no quantity limit
+      customer_id:
+        type: uuid
+        required: false
+        description: FK → customer.id — customer whose authorization is being obtained
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part subject to the deviation or waiver
+      for_spec:
+        target: part_specification
+        cardinality: many-to-one
+        description: Drawing revision in scope
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+        description: Serial number scope (defined in schemas/job.yaml)
+      for_lot:
+        target: material_lot
+        cardinality: many-to-one
+        description: Material lot scope (defined in schemas/material.yaml)
+      references_ncr:
+        target: nonconformance_report
+        cardinality: many-to-one
+        description: NCR documenting the nonconformance; typically populated for waivers (defined in schemas/quality.yaml)
+      initiated_by:
+        target: user
+        cardinality: many-to-one
+        description: Quality engineer or engineer who initiated the deviation/waiver request
+      for_customer:
+        target: customer
+        cardinality: many-to-one
+        description: Customer whose authorization is being obtained

@@ -1,0 +1,123 @@
+# schemas/operator_qualification.yaml
+#
+# Layer-1 coverage: AS9100 §7.2 requires that personnel performing work affecting
+# product conformity be competent on the basis of education, training, skills, and
+# experience. AS9100 §8.5.1 requires controlled conditions for special processes,
+# including qualified personnel. Neither standard defines a data entity for
+# individual operator qualification records.
+#
+# Prose source: extensions/change-management.md (operator qualification context)
+#
+# Cross-schema references:
+#   process_specification → schemas/outside_process_operation.yaml
+#   work_center           → schemas/routing.yaml
+#
+# Distinction from nadcap_certification (schemas/nadcap_certification.yaml):
+#   nadcap_certification tracks the SUPPLIER's facility-level accreditation for a
+#   Nadcap audit category (e.g., the shop is Nadcap HT accredited).
+#   operator_qualification tracks the INDIVIDUAL OPERATOR's training and certification
+#   currency for a specific process, operation code, or equipment type. Both may be
+#   required simultaneously — the facility must be Nadcap accredited AND the specific
+#   operator performing the work must hold a valid individual qualification.
+#
+# Entities: operator_qualification
+
+entities:
+
+  operator_qualification:
+    description: >
+      Records that a specific operator is qualified to perform a specific operation
+      type, process specification, or equipment class. Required for special processes
+      (welding, NDT, torque-critical assembly, helicoil installation) where AS9100
+      §8.5.1 demands that only qualified personnel perform the work.
+      qualification_type discriminates the scope of the qualification:
+        Process — qualified to run a specific process_specification (e.g., AMS 2759/3
+          heat treat procedure; NDT FPI Level II per ASTM E1417)
+        OperationCode — qualified to perform a named operation code in the routing
+          (e.g., TORQUE, NDT_FPI, WELD, INSERT)
+        Equipment — qualified to operate a specific machine or inspection station
+          (linked via work_center_id)
+        Inspection — qualified to perform inspection of a specific scope (e.g.,
+          CMM first-article, visual inspection for an operation)
+      Expiry: time-limited qualifications carry an expiry_date; indefinite qualifications
+      (e.g., a general machining skill qualification with no requalification requirement)
+      leave expiry_date null. Status transitions to Expired automatically when
+      expiry_date is reached.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the qualification record is created
+      operator_id:
+        type: uuid
+        required: true
+        description: FK → user.id — the operator holding this qualification
+      qualification_type:
+        type: enum
+        required: true
+        values: [Process, OperationCode, Equipment, Inspection]
+        description: >
+          Process: qualified to run a specific process specification.
+          OperationCode: qualified to perform a named operation type.
+          Equipment: qualified to operate a specific machine or station.
+          Inspection: qualified to perform a specific inspection scope.
+      process_specification_id:
+        type: uuid
+        required: false
+        description: FK → process_specification.id — the specific process spec the operator is qualified to run; populated for Process qualifications (defined in schemas/outside_process_operation.yaml)
+      operation_code:
+        type: string
+        required: false
+        description: Operation code the operator is qualified to perform; populated for OperationCode qualifications
+        examples: ["TORQUE", "NDT_FPI", "NDT_MPI", "WELD", "INSERT", "PRESS_FIT", "INSPECT"]
+      work_center_id:
+        type: uuid
+        required: false
+        description: FK → work_center.id — specific machine or inspection station; populated for Equipment qualifications (defined in schemas/routing.yaml)
+      training_record_reference:
+        type: string
+        required: false
+        description: External training record reference — LMS course ID, training log number, or certificate number
+        examples: ["LMS-2026-NDT-FPI-L2", "TRAINING-LOG-0042", "AWS-CWI-123456"]
+      qualified_date:
+        type: date
+        required: true
+        description: Date qualification was granted or last renewed
+      expiry_date:
+        type: date
+        required: false
+        description: Date qualification expires; null = indefinite (no requalification interval defined for this qualification type)
+      qualified_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — the certifying authority who granted the qualification (quality manager, lead inspector, or trainer); null if qualification is self-certified or externally certified with no internal certifier record
+      status:
+        type: enum
+        required: true
+        values: [Active, Expired, Suspended, Revoked]
+        description: >
+          Active: qualification is current and valid.
+          Expired: expiry_date was reached without renewal.
+          Suspended: qualification temporarily invalid pending investigation or retraining.
+          Revoked: qualification permanently withdrawn (quality event, procedure violation).
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operator:
+        target: user
+        cardinality: many-to-one
+        description: Operator holding this qualification
+      for_process:
+        target: process_specification
+        cardinality: many-to-one
+        description: Process specification the operator is qualified to run (populated for Process qualifications)
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: Machine or station the operator is qualified to operate (populated for Equipment qualifications; defined in schemas/routing.yaml)
+      certified_by:
+        target: user
+        cardinality: many-to-one
+        description: Internal certifying authority who granted the qualification

@@ -375,7 +375,7 @@ entities:
         description: >
           Array of kit item objects. Each object contains:
             item_id: uuid (FK → item.id or material.id)
-            item_type: enum [part, fastener, consumable, material]
+            item_type: enum [part, fastener, consumable, material, insert, pin]
             item_number: string (part number or material designation)
             quantity_required: integer
             quantity_staged: integer

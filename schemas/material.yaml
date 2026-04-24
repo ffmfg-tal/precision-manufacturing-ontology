@@ -524,6 +524,15 @@ entities:
           flowdown plans (QA-004 extensions). Not defined in any standard — a manufacturer
           receiving practice.
 
+      customer_furnished:
+        type: boolean
+        required: true
+        description: >
+          True if this material lot was supplied by the customer (GFM/CFM — Government/Customer
+          Furnished Material). Customer-furnished lots are traceable to the customer's material
+          certification; the manufacturer does not perform incoming material inspection beyond
+          verifying identity and quantity. False for manufacturer-purchased material.
+
       status:
         type: enum
         values: [Available, Reserved, In Use, Quarantined, Consumed, Rejected]

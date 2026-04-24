@@ -401,3 +401,566 @@ Deduplicated list of every unique `[Entity]` node type used in the Archetype C t
 - **`[Quality Engineer]` vs a generic `[Person]` or `[User]` role entity.** Witness inspection signoff requires a typed identity. Whether that identity is its own entity type, a role on a general person entity, or an attribute on `[Witness Inspection]` is unresolved.
 - **`[Fastener]` scope.** Fasteners are COTS purchased items with their own cert chain (MTR, CoC). Whether a `[Fastener]` is a specialization of `[Part]`, a specialization of `[Material]`, or its own type depends on whether the manufacturer treats fasteners as inventory items or as consumables rolled into an assembly op. The matrix should decide.
 - **Child cert package nesting.** Archetype C nests `[Certification Package]` inside `[Certification Package]`. Whether the assembly-level cert package is literally a bundle of child cert packages, or a flat aggregation of the underlying documents with references back to child parts, is an implementation choice the matrix should call out.
+
+---
+
+## Walk 4 — Calibration Recall
+
+**Scenario:** Inspector Maria uses ring gauge CAL-0042 (`tool_gauge`, `calibration_status: Current`) on 2026-04-10 to perform `Final_Inspection` on SN-003 and SN-004 of Job J-2026-189. On 2026-04-15 she notices the gauge face is chipped. Quality quarantines it. The shop must determine whether the measurements from 2026-04-10 are still valid.
+
+**What this walk tests:** the calibration-recall traceability chain. Without `calibration_record` (immutable evidence of the last calibration event) and `inspection_event` (the UUID envelope linking inspector + gauge + session), there is no systematic way to identify which measurement results are at risk and bound the review scope.
+
+### Step-by-step walkthrough
+
+**Step 1 — Quarantine the gauge.**
+
+Entity: `tool_gauge` (asset_tag: CAL-0042)
+
+Data at this node:
+- `calibration_status`: Current → **Quarantined** (update)
+- `location`: "QC Lab — Quarantine" (update)
+- `current_calibration_id`: FK → calibration_record (unchanged — last valid calibration still on record)
+- `calibration_due_date`: 2026-06-15 (unchanged)
+
+Without `tool_gauge.calibration_status`, the shop has no single field to flip that signals "this instrument is out of service" to every downstream query; the quarantine would have to be enforced by convention rather than data.
+
+**Step 2 — Retrieve the last calibration record.**
+
+Entity: `calibration_record` (query: `tool_gauge_id = CAL-0042`, sort by `calibration_date` desc)
+
+Data at the most-recent record:
+- `calibration_date`: 2026-03-15
+- `result`: Pass
+- `as_found_in_tolerance`: true
+- `certificate_number`: CAL-CERT-2026-0315-042
+- `performed_by`: "Acme Calibration Lab"
+- `lab_accreditation`: "A2LA accreditation #4821"
+
+Finding: the gauge was in tolerance as of 2026-03-15. All measurements taken between 2026-03-15 and the quarantine event on 2026-04-15 were performed while the gauge was within its calibration interval.
+
+Without `calibration_record`, determining the "last known-good" calibration date requires digging through paper logs; the query cannot be automated.
+
+**Step 3 — Find all inspection sessions using this gauge in the at-risk window.**
+
+Entity: `inspection_event` (query: records where the gauge appears in session metadata between 2026-03-15 and 2026-04-15)
+
+Matching record — `inspection_event` IE-0089:
+- `event_type`: Final_Inspection
+- `job_id`: J-2026-189
+- `serial_ids`: [SN-003, SN-004]
+- `inspection_date`: 2026-04-10
+- `inspector_id`: Maria (user FK)
+- `result_summary`: Pass
+
+Without `inspection_event` as a first-class UUID envelope, there is no indexed record linking a gauge to a group of measurement results; the recall scope cannot be determined by query.
+
+**Step 4 — Retrieve all measurements from that session.**
+
+Entity: `pmi_event` (query: `inspection_event_id = IE-0089`)
+
+14 records returned. Each record holds:
+- `technique`: ring_gauge (OD measurement) or depth_gauge (depth measurement)
+- `element_readings[]`: measured value, nominal, deviation, pass/fail
+- `instrument_id`: FK → tool_gauge.id
+
+Result: 14 measurements total — mix of OD and depth readings on SN-003 and SN-004.
+
+**Step 5 — Check which measurements are key characteristics.**
+
+Entity: `key_characteristic` (query: records where `balloon_number` matches any `pmi_event` in IE-0089)
+
+2 of the 14 measurements correspond to KCs:
+- KC-7832-001-K01: depth dimension (depth gauge, not ring gauge)
+- KC-7832-001-K02: depth dimension (depth gauge, not ring gauge)
+
+Both KC measurements used the depth gauge, not CAL-0042. The chipped ring gauge was used only for OD measurements (7 of 14).
+
+**Step 6 — Engineering disposition.**
+
+The quality engineer reviews the damage pattern: the chipped face on CAL-0042 affects the OD-measurement contact faces only. The 2 KC measurements are depth measurements, unaffected. The 7 OD measurements used CAL-0042, but OD dimensions on 7832-001 are not KC-designated; tolerances are standard bilateral and the gauge was within calibration.
+
+Disposition: OD measurements remain valid. No recall action required.
+
+**Step 7 — Document in nonconformance report.**
+
+Entity: `nonconformance_report` (NCR-2026-0041)
+
+Key fields:
+- `subject_id/subject_type`: tool_gauge / CAL-0042
+- `description`: "Gauge CAL-0042 found with chipped ring face on 2026-04-15."
+- `mrb_disposition`: Use_As_Is (for the measured parts — no rework)
+- `mrb_justification`: "Measurements IE-0089 reviewed; no impact — damage pattern does not affect measurement axes used for KC or critical dimensions. OD readings remain valid: gauge was within calibration interval and damage does not affect OD-measurement geometry for the tolerances specified."
+- `status`: Closed
+- Free-text note: "Gauge CAL-0042 quarantined. Measurements IE-0089 reviewed; no impact — damage pattern does not affect measurement axes used."
+
+**Step 8 — Record maintenance event.**
+
+Entity: `tool_maintenance_event`
+
+Key fields:
+- `asset_type`: Gauge
+- `tool_gauge_id`: FK → CAL-0042
+- `event_type`: Inspect
+- `result`: RetiredAfterService
+- `description`: "Chip on ring face deemed unrepairable. Gauge retired."
+- `event_date`: 2026-04-16
+
+**Step 9 — Retire the gauge.**
+
+Entity: `tool_gauge` (CAL-0042)
+
+Update:
+- `calibration_status`: Quarantined → **Retired**
+- `location`: "QC Lab — Retired Instruments"
+
+### Digital thread break analysis
+
+If `inspection_event` did not exist as a UUID envelope, Step 3 would require manual cross-reference of paper logs to link a gauge serial number to a set of measurement results. If `calibration_record` did not exist as a queryable entity, Step 2 would require reviewing physical calibration certificates to establish the last in-tolerance date. If `key_characteristic` balloon references were not recorded in `pmi_event`, Step 5 would require manual review of each measurement against the drawing to assess KC impact.
+
+### Entity touchpoints
+
+`tool_gauge` · `calibration_record` · `inspection_event` · `pmi_event` · `key_characteristic` · `nonconformance_report` · `tool_maintenance_event`
+
+---
+
+## Walk 5 — ECN Mid-Production
+
+**Scenario:** Engineering issues ECN-2026-0042 for part 7832-001: drawing changes from Rev B to Rev C (tightened tolerance on one bore). At the time of approval (2026-04-20), 3 jobs are running against Rev B: Job J-2026-180 (qty 5, 2 complete), J-2026-185 (qty 3, 0 complete), J-2026-192 (qty 10, 7 complete). ECN effective date: 2026-05-01 for new orders; existing open orders may complete Rev B.
+
+**What this walk tests:** the change management chain across `engineering_change_notice`, `part_specification`, `routing`, `nre_package`, and in-flight jobs. Without `engineering_change_notice` as a first-class entity, the audit trail linking a drawing revision change to in-flight job dispositions cannot be queried.
+
+### Step-by-step walkthrough
+
+**Step 1 — Create and approve the ECN.**
+
+Entity: `engineering_change_notice` (ECN-2026-0042)
+
+Data at this node:
+- `ecn_number`: ECN-2026-0042
+- `change_type`: Drawing
+- `status`: Draft → **Approved** (on 2026-04-20)
+- `affected_part_id`: FK → part 7832-001
+- `old_part_specification_id`: FK → part_specification (7832-001 Rev B)
+- `new_part_specification_id`: FK → part_specification (7832-001 Rev C — being created, see Step 2)
+- `effective_date`: 2026-05-01
+- `customer_notification_required`: true
+- `customer_approval_required`: false (drawing change within design authority)
+
+**Step 2 — Create the new part_specification; preserve the old.**
+
+Entity: `part_specification` (two records)
+
+New record — 7832-001 Rev C:
+- `drawing_number`: 7832-001
+- `revision`: C
+- `cage_code`: customer CAGE
+- `pdf_file_ref`: path to new PDF
+- Status: active
+
+Old record — 7832-001 Rev B:
+- Not deleted; retained as historical record
+- `routing_revision_status` on its associated routing: Released → **Obsolete** (effective 2026-05-01)
+
+Without `part_specification` as a versioned, immutable record distinct from the part entity, there is no place to anchor "the drawing revision in force on this job"; jobs carry only a `part_id` and the question "which revision was produced?" has no queryable answer.
+
+**Step 3 — Transition routings.**
+
+Entity: `routing` (two records for 7832-001)
+
+Rev B routing:
+- `status`: Released → **Obsolete** (effective 2026-05-01)
+
+Rev C routing (new record):
+- `status`: Draft → **Released** (concurrent with ECN approval)
+- `routing_revision`: Rev C
+- Contains updated operations reflecting the tightened tolerance bore (inspection step updated)
+
+**Step 4 — Create new NRE package for Rev C.**
+
+Entity: `nre_package`
+
+New record:
+- `part_id`: FK → 7832-001
+- `part_specification_id`: FK → part_specification Rev C (immutable lock)
+- `routing_id`: FK → routing Rev C (immutable lock)
+- `status`: Draft (NC programs, setup sheets, CMM program updates needed before Approved)
+
+Without `nre_package` as the revision-lock envelope, there is no single record confirming "all process engineering documents are current to Rev C and approved for production."
+
+**Step 5 — Disposition in-flight jobs.**
+
+**Job J-2026-180** (qty 5, 2 complete):
+- Customer notified; customer approves completing remaining 3 under Rev B.
+- No `deviation_waiver` required: existing in-flight job under original PO, customer explicitly approved.
+- Job continues under original routing Rev B. No job record changes.
+
+**Job J-2026-185** (qty 3, 0 complete):
+- No work started. Job cancelled; reissued as new Job J-2026-198 against routing Rev C.
+- Original job: `status` → Cancelled.
+- New job J-2026-198: `routing_id` → routing Rev C; `part_specification_id` → Rev C.
+
+**Job J-2026-192** (qty 10, 7 complete):
+- 7 already-complete units measured against the tightened Rev C bore tolerance.
+- 6 of 7 pass the new tolerance.
+- 1 of 7 fails the new tolerance.
+- `nonconformance_report` opened for the 1 out-of-tolerance unit.
+- `deviation_waiver` (WAI-2026-0005) created for that 1 unit (see Step 6).
+- Remaining 3 units completed under routing Rev C.
+
+**Step 6 — Create deviation waiver for the out-of-tolerance unit.**
+
+Entity: `deviation_waiver` (WAI-2026-0005)
+
+Key fields:
+- `document_type`: Waiver
+- `dw_number`: WAI-2026-0005
+- `part_id`: FK → 7832-001
+- `part_specification_id`: FK → 7832-001 Rev C
+- `serial_id`: FK → the 1 failing serial number
+- `quantity_affected`: 1
+- `ncr_id`: FK → nonconformance_report for the out-of-tolerance bore
+- `nonconformance_description`: "Bore diameter 0.0003 outside new Rev C tolerance; within prior Rev B tolerance."
+- `proposed_disposition`: "Use as-is — customer functional analysis confirms margin adequate for intended bore application."
+- `status`: Draft → **Submitted** → **Approved**
+- `approved_by`: "John Smith, SpaceCo DER-0042"
+- `approved_date`: 2026-04-28
+
+Without `deviation_waiver`, the authorization from SpaceCo's DER has no data entity to anchor to; it exists only as an email or paper document with no FK link to the affected serial number and NCR.
+
+**Step 7 — Release the ECN.**
+
+Entity: `engineering_change_notice` (ECN-2026-0042)
+
+Update:
+- `status`: Approved → **Released** (after 2026-05-01 effective date passes and all in-flight job dispositions are documented)
+
+### Digital thread break analysis
+
+If `engineering_change_notice` did not link `old_part_specification_id` and `new_part_specification_id` with typed FKs, the change record would be a text field describing what changed rather than a queryable link. Finding all jobs impacted by the revision change would require a full-text search rather than a FK join. If `nre_package` did not lock `routing_id` immutably, an operator could inadvertently run Rev B NC programs against a Rev C job without any schema-layer guard.
+
+### Entity touchpoints
+
+`engineering_change_notice` · `part_specification` · `routing` · `nre_package` · `job` · `work_order` · `deviation_waiver` · `nonconformance_report` · `customer_purchase_order`
+
+---
+
+## Walk 6 — Fixture Full Lifecycle
+
+**Scenario:** FFMFG designs a dedicated soft-jaw fixture for part 7832-001 Op 10 (5-axis rough mill). The fixture has its own part number FIX-7832-001-01, goes through internal manufacture, qualification prove-out, active production use, a maintenance event, and eventual retirement.
+
+**What this walk tests:** the fixture lifecycle chain across `part` (as fixture), `routing`, `job`, `fixture_use`, `nc_program`, `prove_out_record`, `tool_room_allocation`, `tool_maintenance_event`. Without `fixture_use` as a first-class join entity, the link between a routing operation and the fixture required to run it has no queryable representation.
+
+### Step-by-step walkthrough
+
+**Step 1 — Register the fixture in the item master.**
+
+Entity: `part` (FIX-7832-001-01, Rev A)
+
+Key fields:
+- `part_number`: FIX-7832-001-01
+- `revision`: A
+- `part_kind`: fixture
+- `fai_status`: Not_Required (internal tooling; not a customer-deliverable part)
+- `itar_controlled`: false
+- `active`: true
+
+**Step 2 — Create the fixture drawing.**
+
+Entity: `part_specification` (FIX-7832-001-01 Rev A)
+
+Key fields:
+- `drawing_number`: FIX-7832-001-01
+- `revision`: A
+- `pdf_file_ref`: path to fixture drawing PDF
+- `cage_code`: FFMFG internal CAGE
+
+**Step 3 — Create the manufacturing routing for the fixture.**
+
+Entity: `routing` (FIX-7832-001-01 Rev A)
+
+Key fields:
+- `routing_revision`: A
+- `status`: Released
+- Operations:
+  - Op 10: MILL — 3-axis mill the jaw profiles (Work Center: Haas VF-3)
+  - Op 20: INSPECT — CMM verify jaw geometry (Work Center: Zeiss Contura)
+  - Op 30: CLEAN — deburr and clean
+
+**Step 4 — Issue a job to build the fixture.**
+
+Entity: `job` (J-2026-155)
+
+Key fields:
+- `subject_id`: FK → part FIX-7832-001-01
+- `subject_type`: part
+- `routing_id`: FK → fixture routing Rev A
+- `quantity`: 1
+- `job_type`: stock build (internal, not for a customer PO)
+
+**Step 5 — Execute work orders and inspection.**
+
+Entities: `work_order` (three records, one per operation)
+
+Op 10 (MILL): machined; `status` → Complete.
+Op 20 (INSPECT): CMM inspection of jaw geometry.
+
+Entity: `inspection_event` (IE-0101)
+
+Key fields:
+- `event_type`: Final_Inspection
+- `job_id`: FK → J-2026-155
+- `serial_ids`: [FIX-SN-001]
+- `result_summary`: Pass — jaw geometry within tolerance
+
+Op 30 (CLEAN): deburr and clean; `status` → Complete.
+
+Job J-2026-155: `status` → Complete.
+
+**Step 6 — Create the fixture_use record linking the fixture to 7832-001 Op 10.**
+
+Entity: `fixture_use`
+
+Key fields:
+- `operation_id`: FK → operation Op 10 in routing for 7832-001 Rev C
+- `fixture_part_id`: FK → part FIX-7832-001-01
+- `description`: "primary workholding — soft jaw set for 5-axis rough mill"
+- `required`: true
+
+Without `fixture_use`, the relationship between the operation and the required fixture exists only in setup sheet prose. A scheduler or tool crib operator cannot query "which fixture does Op 10 of job J-2026-189 need?" by FK.
+
+**Step 7 — NC program references the fixture.**
+
+Entity: `nc_program` (7832-001-OP10-MAZAK1)
+
+Key fields:
+- `operation_id`: FK → Op 10 of 7832-001 routing
+- `work_center_id`: FK → Mazak 5-axis
+- `status`: Draft → Released (after prove-out)
+- `program_number`: 7832-001-OP10-MAZAK1
+
+The associated `setup_sheet` shows FIX-7832-001-01 as the primary fixture; the `tooling_list` specifies tools needed with the fixture installed.
+
+**Step 8 — Prove-out record: first part machined with the fixture.**
+
+Entity: `prove_out_record`
+
+Key fields:
+- `nc_program_id`: FK → 7832-001-OP10-MAZAK1
+- `work_center_id`: FK → Mazak 5-axis
+- `operator_id`: FK → user (machinist)
+- `prove_out_date`: 2026-03-20
+- `first_piece_result`: Pass
+- `approved_by_id`: FK → user (engineering)
+- `approved_date`: 2026-03-21
+
+NC program status advances: Draft → Proven → Released.
+
+**Step 9 — Fixture checked out for production job.**
+
+Entity: `tool_room_allocation` (for Job J-2026-189)
+
+Key fields:
+- `asset_part_id`: FK → part FIX-7832-001-01
+- `job_id`: FK → J-2026-189
+- `operation_id`: FK → Op 10
+- `checked_out_by_id`: FK → user (operator Alex)
+- `checked_out_date`: 2026-04-08T07:30:00Z
+- `returned_date`: 2026-04-10T15:45:00Z
+- `status`: CheckedOut → **Returned**
+
+**Step 10 — Scheduled maintenance inspection after 50 uses.**
+
+Entity: `tool_maintenance_event`
+
+Key fields:
+- `asset_type`: Fixture
+- `asset_part_id`: FK → FIX-7832-001-01
+- `event_type`: Inspect
+- `event_date`: 2026-04-20
+- `result`: Pass
+- `description`: "Jaw geometry re-verified after 50 uses; within tolerance per CMM check."
+
+**Step 11 — Wear-out: jaw worn beyond regrind limit after 200 uses.**
+
+Entity: `tool_maintenance_event` (second record)
+
+Key fields:
+- `asset_type`: Fixture
+- `asset_part_id`: FK → FIX-7832-001-01
+- `event_type`: Inspect
+- `result`: Fail
+- `description`: "Jaw geometry outside tolerance after 200 production uses. Jaw worn beyond regrind limit. Retire."
+- `event_date`: 2026-09-15
+
+**Step 12 — Retire the fixture.**
+
+Entity: `part` (FIX-7832-001-01)
+
+Update:
+- `active`: false
+
+The `fixture_use` record linking Op 10 → FIX-7832-001-01 remains in place as historical record; a replacement fixture (FIX-7832-001-02) would create a new `fixture_use` or the existing one's `fixture_part_id` would be updated to point to the replacement part.
+
+### Digital thread break analysis
+
+Without `fixture_use`, there is no queryable link between Op 10 of job J-2026-189 and FIX-7832-001-01. Without `tool_room_allocation`, there is no audit trail of which jobs used the fixture and when it was returned, making it impossible to systematically trace "which jobs ran with this fixture between its last inspection and retirement?" Without `prove_out_record`, the NC program's transition from Draft to Released has no immutable evidence record; prove-out approval exists only as a signoff in the shop floor log.
+
+### Entity touchpoints
+
+`part` (fixture) · `part_specification` · `routing` · `job` · `work_order` · `inspection_event` · `fixture_use` · `nc_program` · `setup_sheet` · `prove_out_record` · `tool_room_allocation` · `tool_maintenance_event`
+
+---
+
+## Walk 7 — Concurrent Revision Production
+
+**Scenario:** FFMFG has two open customer purchase orders for part 7832-001: CPO-101 ordered Rev B (legacy, partially shipped — 15 of 20 shipped), CPO-107 ordered Rev C (new order, 10 pieces). Rev C FAI has not been completed. Both are in production simultaneously.
+
+**What this walk tests:** concurrent multi-revision production, where two jobs for the same part number run simultaneously against different revisions, each with its own routing, NRE package, and FAI status. Without separate `part` records per revision (or a revision-disambiguating FK on `job`), the production system cannot prevent Rev B NC programs from running on a Rev C job.
+
+### Step-by-step walkthrough
+
+**Step 1 — Part master: two records, one per revision.**
+
+Entity: `part` (two records)
+
+Record A — 7832-001 Rev B:
+- `part_number`: 7832-001
+- `revision`: B
+- `fai_status`: Approved (existing, proven)
+- `active`: true
+
+Record B — 7832-001 Rev C:
+- `part_number`: 7832-001
+- `revision`: C
+- `fai_status`: In_Progress (FAI not yet complete)
+- `active`: true
+- UUID distinct from Rev B record
+
+**Step 2 — Part specifications: two records.**
+
+Entity: `part_specification` (two records)
+- 7832-001 Rev B: `revision` = B; established drawing
+- 7832-001 Rev C: `revision` = C; tightened bore tolerance
+
+**Step 3 — Routings: two records.**
+
+Entity: `routing` (two records)
+- Rev B routing: `status` = Released (established, proven)
+- Rev C routing: `status` = Released (new version per ECN-2026-0042)
+
+**Step 4 — NRE packages: two records.**
+
+Entity: `nre_package` (two records)
+- Rev B package: `status` = Approved (existing, all documents current)
+- Rev C package: `status` = InReview (NC programs written, CMM program updated; not yet prove-out approved; blocks Rev C production from claiming Approved status)
+
+**Step 5 — Customer purchase orders: two records.**
+
+Entity: `customer_purchase_order` (two records)
+
+CPO-101 (Rev B):
+- `part_id`: FK → part 7832-001 Rev B
+- `quantity`: 20
+- `quantity_shipped`: 15
+- `open_quantity`: 5
+- `status`: Partially_Shipped
+
+CPO-107 (Rev C):
+- `part_id`: FK → part 7832-001 Rev C
+- `quantity`: 10
+- `quantity_shipped`: 0
+- `open_quantity`: 10
+- `status`: In_Production
+- `quality_clause_ids`: includes FAI_Required (triggers first-article constraint on the job)
+
+**Step 6 — Jobs: two records.**
+
+Entity: `job` (two records)
+
+J-2026-200 (CPO-101, Rev B, 5 remaining):
+- `routing_id`: FK → routing Rev B
+- `customer_purchase_order_id`: FK → CPO-101
+- `serial_numbers`: SN-016 through SN-020
+- `status`: In_Production
+
+J-2026-201 (CPO-107, Rev C, 10 pieces):
+- `routing_id`: FK → routing Rev C
+- `customer_purchase_order_id`: FK → CPO-107
+- `serial_numbers`: SN-021 through SN-030
+- `status`: In_Production
+
+The separate `routing_id` FKs on each job are the guard that prevents Rev B NC programs from being issued to J-2026-201.
+
+**Step 7 — Rev C FAI: first article inspection on SN-021.**
+
+Entity: `inspection_event` (IE-0110)
+
+Key fields:
+- `event_type`: First_Article
+- `job_id`: FK → J-2026-201
+- `serial_ids`: [SN-021]
+- `fai_package_id`: FK → certification_package (new, `includes_fai = true`)
+- `result_summary`: Pending
+
+Entity: `as9102_form_1` (embedded in `first_article_inspection`)
+
+Populated for SN-021: all part numbers (7832-001 Rev C + all sub-components) accounted for; CAGE codes, drawing numbers, FAI report number recorded.
+
+**Step 8 — Certification package assembled for SN-021.**
+
+Entity: `certification_package`
+
+Key fields:
+- `includes_fai`: true
+- `fai_package_id`: this package UUID
+- `covered_serial_ids`: [SN-021]
+- `contained_document_ids`: [FAI forms 1/2/3, material certs, process certs for Rev C routing]
+- `status`: Submitted (to SpaceCo customer)
+
+Part 7832-001 Rev C: `fai_status` → Submitted.
+
+**Step 9 — Rev B parallel shipment proceeds.**
+
+Entity: `shipment` (outbound, CPO-101)
+
+Serial SN-016 ships under CPO-101 while Rev C FAI is in progress. Rev B cert package assembled from established Rev B material certs and process certs. No FAI required on SN-016 (FAI already Approved on Rev B).
+
+**Step 10 — Key characteristics verified for SN-021.**
+
+Entity: `key_characteristic`
+
+All KC records for 7832-001 Rev C verified against `inspection_plan` entries. Balloon numbers match Form 3 characteristic entries. Two KCs on Rev C drawing include the tightened bore tolerance (the bore that changed from Rev B). SN-021 passes both KCs.
+
+**Step 11 — Customer approves Rev C FAI.**
+
+Entity: `part` (7832-001 Rev C)
+
+Update:
+- `fai_status`: Submitted → **Approved**
+
+Entity: `nre_package` (Rev C)
+
+Update:
+- `status`: InReview → **Approved** (prove-out and FAI both complete)
+
+Remaining serial numbers SN-022 through SN-030 released for production under the approved Rev C NRE package.
+
+### Digital thread break analysis
+
+Without separate `part` records per revision, the `job.routing_id` FK would have no revision-specific anchor; the production system could not enforce that J-2026-201 runs Rev C operations. Without `nre_package` carrying `fai_status`-awareness (via the `part` FK), the Rev C `nre_package.status = InReview` would have no queryable signal blocking production use. Without `inspection_plan` with ballot numbers linked to `key_characteristic`, the Form 3 KC verification on SN-021 would be a manual cross-reference exercise rather than a queryable pass/fail record.
+
+### Entities introduced by Walks 4–7 (not in Archetypes A, B, or C)
+
+Deduplicated list of every unique `[Entity]` node type introduced by these four scenario walks that is not already on the Archetype A, B, or C entity lists.
+
+- `[Calibration Record]`
+- `[Deviation Waiver]`
+- `[Engineering Change Notice]`
+- `[Fixture Use]`
+- `[Inspection Event]` (first-class UUID envelope, distinct from `[PMI Event]`)
+- `[Inspection Plan]`
+- `[NC Program]`
+- `[NRE Package]`
+- `[Prove-Out Record]`
+- `[Tool Maintenance Event]`
+- `[Tool Room Allocation]`

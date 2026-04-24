@@ -1,0 +1,704 @@
+# schemas/process_engineering.yaml
+#
+# Layer-1 coverage: STEP AP238 (ISO 10303-238) defines CNC process plan structure but
+# has no concept of the NC program file itself, the prove-out event, or the CAM-to-NC
+# posting relationship. STEP AP242 covers PMI and key characteristics but not inspection
+# plan ordering or gauge-type sequencing. QIF covers inspection plans and measurement
+# results but has no model for CAM files or NC programs. None of these standards define
+# an NRE package as a revision-locking organizing entity.
+#
+# Prose source: extensions/process-engineering-nre.md
+#
+# Architectural decisions:
+#   nre_package is the revision-lock envelope: part_specification_id and routing_id are
+#     immutable after creation; a change to either requires a new package (prior → Superseded)
+#   nc_program natural key is (operation_id, work_center_id): per-operation × per-machine;
+#     machine flex without routing change is modeled as multiple nc_program records
+#   cam_file → nc_program is one-to-many: one CAM project posts to multiple machine-specific
+#     nc_programs via different post-processors; nc_program.cam_file_id is optional for
+#     hand-coded programs
+#   fixtures are part entities with part_kind: fixture (NOT a separate entity class);
+#     fixture_use is the join entity linking operation → fixture part
+#   print_file is a controlled snapshot distinct from part_specification.pdf_file_ref
+#     (the master drawing record); snapshot is bound to the nre_package approval state
+#   inspection_plan is method-agnostic (governs what to measure and in what order);
+#     cmm_program is machine-executable code — these are separate entities
+#   prove_out_record is immutable evidence: never edited; a rework cycle produces a
+#     second record rather than overwriting the first
+#   tooling_list ties to nc_program (not just operation) because tool selection is
+#     machine-specific (holder type, taper standard, stickout limits)
+#   tool_assembly_definition_id in tooling_list_line is a forward reference to
+#     schemas/tool_room.yaml (not yet authored)
+#
+# Entities: nre_package, nc_program, cam_file, setup_sheet, cmm_program,
+#           inspection_plan, prove_out_record, print_file, tooling_list,
+#           tooling_list_line, fixture_use
+
+entities:
+
+  nre_package:
+    description: >
+      The parent envelope that locks together all process engineering documents for a
+      specific drawing revision and routing revision. Part_specification_id (drawing
+      revision) and routing_id (routing revision) are immutable after creation — when
+      either changes, a new nre_package is required and the prior transitions to
+      Superseded. The package is the single reference that makes the currency of all
+      child documents checkable by query.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the NRE package record is created
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id
+      part_specification_id:
+        type: uuid
+        required: true
+        description: FK → part_specification.id — drawing revision locked at package creation; immutable
+      routing_id:
+        type: uuid
+        required: true
+        description: FK → routing.id — routing revision locked at package creation; immutable
+      status:
+        type: enum
+        required: true
+        values: [Draft, InReview, Approved, Superseded]
+        description: >
+          Draft = in progress; InReview = submitted for engineering/quality review;
+          Approved = authorized for production use; Superseded = replaced by a newer package
+      approved_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — engineer or quality approver
+      approved_date:
+        type: date
+        required: false
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part this NRE package covers
+      for_specification:
+        target: part_specification
+        cardinality: many-to-one
+        description: Drawing revision locked into this package
+      for_routing:
+        target: routing
+        cardinality: many-to-one
+        description: Routing revision locked into this package
+      approved_by:
+        target: user
+        cardinality: many-to-one
+        description: Engineer or quality approver who authorized the package
+      contains_nc_programs:
+        target: nc_program
+        cardinality: one-to-many
+        description: All NC programs belonging to this NRE package
+      contains_cam_files:
+        target: cam_file
+        cardinality: one-to-many
+        description: All CAM files belonging to this NRE package
+      contains_setup_sheets:
+        target: setup_sheet
+        cardinality: one-to-many
+        description: All setup sheets belonging to this NRE package
+      contains_cmm_programs:
+        target: cmm_program
+        cardinality: one-to-many
+        description: All CMM programs belonging to this NRE package
+      contains_inspection_plans:
+        target: inspection_plan
+        cardinality: one-to-many
+        description: All inspection plans belonging to this NRE package
+      contains_tooling_lists:
+        target: tooling_list
+        cardinality: one-to-many
+        description: All tooling lists belonging to this NRE package
+
+  nc_program:
+    description: >
+      The machine-specific CNC program file for one operation at one work center.
+      Natural key is (operation_id, work_center_id): the same operation may have
+      multiple NC programs when it can run on different machines (machine flex). Each
+      NC program has its own revision and status lifecycle. Only Released programs
+      may be issued to the floor for production jobs.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the NC program record is created
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the routing operation this program executes
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id — the specific machine this program runs on
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id — the NRE package this program belongs to
+      program_number:
+        type: string
+        required: true
+        description: Human-readable program identifier; typically encodes part number, operation, and machine
+        examples: ["7832-001-OP10-MAZAK1", "7832-001-OP20-DMG1"]
+      revision:
+        type: string
+        required: true
+        description: Program revision; advances independently of drawing or routing revision
+        examples: ["A", "B", "1", "2"]
+      cam_file_id:
+        type: uuid
+        required: false
+        description: FK → cam_file.id — source CAM file that posted this program; omitted for hand-coded programs
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the .nc file in the controlled document store
+      status:
+        type: enum
+        required: true
+        values: [Draft, Proven, Released, Obsolete]
+        description: >
+          Draft = in development; Proven = first-piece passed (see prove_out_record);
+          Released = authorized for production; Obsolete = superseded by a new revision
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Routing operation this program executes
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: Machine this program runs on
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this program belongs to
+      from_cam_file:
+        target: cam_file
+        cardinality: many-to-one
+        description: CAM file that generated this program via post-processor
+      has_prove_out_records:
+        target: prove_out_record
+        cardinality: one-to-many
+        description: Prove-out events for this program (immutable; multiple records if rework occurred)
+
+  cam_file:
+    description: >
+      The CAM project file that is the engineering source for one or more NC programs.
+      A single CAM file posts to multiple nc_program records when the same machining
+      strategy runs on different machines — one CAM project, multiple post-processor
+      outputs. The CAM file is tied to one operation within one NRE package.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the CAM file record is created
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the operation this CAM file programs
+      file_reference:
+        type: string
+        required: true
+        description: Path or URL to the CAM project file in the controlled document store
+        examples: ["\\\\fileserver\\cam\\7832-001-OP10.mcam", "vault://cam/7832-001-OP10.f3d"]
+      cad_model_reference:
+        type: string
+        required: false
+        description: Path or URL to the 3D model used as input (STEP, Parasolid, native CAD)
+      cam_system:
+        type: string
+        required: false
+        description: CAM software and version used to author the file
+        examples: ["Mastercam 2025", "Fusion 360 2024", "Esprit 2023"]
+      revision:
+        type: string
+        required: true
+        description: CAM file revision; advances when toolpaths are reworked
+        examples: ["A", "B", "1"]
+      created_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — programmer who authored this CAM file
+      created_date:
+        type: date
+        required: false
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Operation this CAM file programs
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this CAM file belongs to
+      created_by:
+        target: user
+        cardinality: many-to-one
+        description: Programmer who authored this CAM file
+      posts_to_nc_programs:
+        target: nc_program
+        cardinality: one-to-many
+        description: NC programs generated from this CAM file via different post-processors
+
+  setup_sheet:
+    description: >
+      The operator setup instruction for one operation at one work center. Typically a
+      PDF or structured document showing fixturing orientation, work offsets, tool list,
+      and critical setup notes. Work-center-specific because machine coordinate systems,
+      pallet configurations, and fixturing differ between machines even for the same
+      operation.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the setup sheet record is created
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id — the machine this setup sheet applies to
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id
+      revision:
+        type: string
+        required: true
+        description: Setup sheet revision
+        examples: ["A", "B", "1"]
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the PDF setup sheet in the controlled document store
+      fixture_part_id:
+        type: uuid
+        required: false
+        description: FK → part.id — primary fixture shown on the setup sheet (part_kind = fixture)
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Operation this setup sheet covers
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: Machine this setup sheet applies to
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this setup sheet belongs to
+      shows_fixture:
+        target: part
+        cardinality: many-to-one
+        description: Primary fixture shown on the setup sheet (part_kind = fixture)
+
+  cmm_program:
+    description: >
+      The coordinate measuring machine program for an inspection operation. CMM programs
+      are machine-specific (e.g., PC-DMIS for Zeiss, Calypso for another platform) and
+      are distinct from the inspection plan, which is method-agnostic. The CMM program
+      is the executable artifact; the inspection plan is the governance document that
+      defines what to measure.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the CMM program record is created
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the inspection operation this program executes (e.g., Op 50 CMM)
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id — the CMM machine this program runs on
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id
+      program_name:
+        type: string
+        required: true
+        description: CMM program filename or identifier
+        examples: ["7832-001-FAI-CMM.mpx", "7832-001-INPROCESS.prg"]
+      revision:
+        type: string
+        required: true
+        description: CMM program revision
+        examples: ["A", "B", "1"]
+      cmm_system:
+        type: string
+        required: false
+        description: CMM software and version used to author and execute the program
+        examples: ["PC-DMIS 2023 R2", "Calypso 2022", "Renishaw MODUS 2020"]
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the CMM program file in the controlled document store
+      qif_template_reference:
+        type: string
+        required: false
+        description: Optional path or URL to the QIF plan file used to generate or validate this program
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Inspection operation this CMM program executes
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: CMM machine this program runs on
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this CMM program belongs to
+
+  inspection_plan:
+    description: >
+      The pre-defined plan specifying which key characteristics to check, in what order,
+      and with what gauge type or method. Method-agnostic: the plan governs measurement
+      sequence whether executed by CMM, manual gauge, or vision system. plan_type
+      distinguishes FAI (AS9102 first article) from routine in-process, receiving, and
+      final inspection plans.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the inspection plan record is created
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the part this inspection plan covers
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id
+      revision:
+        type: string
+        required: true
+        description: Inspection plan revision
+        examples: ["A", "B", "1"]
+      plan_type:
+        type: enum
+        required: true
+        values: [FAI, InProcess, Receiving, Final]
+        description: >
+          FAI = First Article Inspection per AS9102 Rev C (required for new P/N and engineering changes);
+          InProcess = checks at intermediate operations before completion;
+          Receiving = incoming inspection of raw material or purchased parts;
+          Final = dimensional and visual inspection at shipment
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the inspection plan document
+      qif_plan_reference:
+        type: string
+        required: false
+        description: Optional path or URL to QIF plan file providing machine-readable characteristic definitions
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Part this inspection plan covers
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this inspection plan belongs to
+
+  prove_out_record:
+    description: >
+      Immutable evidence that an NC program was proven on a physical machine. Records who
+      ran the prove-out, on which machine, and the first-piece result. Never edited after
+      creation — a rework cycle produces a second record. Engineering or quality sign-off
+      is required before the nc_program can advance from Proven to Released.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the prove-out record is created; never mutated thereafter
+      nc_program_id:
+        type: uuid
+        required: true
+        description: FK → nc_program.id — the program being proven
+      work_center_id:
+        type: uuid
+        required: true
+        description: FK → work_center.id — the machine actually used for the prove-out
+      operator_id:
+        type: uuid
+        required: true
+        description: FK → user.id — operator who ran the prove-out
+      prove_out_date:
+        type: date
+        required: true
+      first_piece_result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Conditional]
+        description: >
+          Pass = all dimensions within tolerance; Fail = one or more dimensions out of tolerance
+          (program returns to Draft); Conditional = dimensions acceptable with documented offset
+          adjustment or engineering disposition
+      approved_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — engineer or quality approver who authorized release after prove-out
+      approved_date:
+        type: date
+        required: false
+      file_reference:
+        type: string
+        required: false
+        description: Path or URL to the first-piece inspection sheet documenting the prove-out measurements
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_nc_program:
+        target: nc_program
+        cardinality: many-to-one
+        description: NC program that was proven
+      at_work_center:
+        target: work_center
+        cardinality: many-to-one
+        description: Machine used for the prove-out
+      by_operator:
+        target: user
+        cardinality: many-to-one
+        description: Operator who ran the prove-out
+      approved_by:
+        target: user
+        cardinality: many-to-one
+        description: Engineer or quality approver who signed off after the prove-out
+
+  print_file:
+    description: >
+      The controlled copy of the drawing PDF packaged with the NRE set. Distinct from
+      part_specification.pdf_file_ref (the master drawing record): the print_file is a
+      snapshot of the drawing revision current at NRE package approval. The distribution
+      statement must match part_specification.distribution_statement for the same revision.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the print file record is created
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id — the NRE package this print file belongs to
+      part_specification_id:
+        type: uuid
+        required: true
+        description: FK → part_specification.id — the drawing revision this is a controlled copy of
+      file_reference:
+        type: string
+        required: true
+        description: Path or URL to the controlled copy of the drawing PDF
+      revision:
+        type: string
+        required: true
+        description: Drawing revision; must match part_specification.revision for the referenced specification
+        examples: ["A", "B", "C", "D"]
+      distribution_statement:
+        type: enum
+        required: false
+        values: [Unlimited, Export_Controlled_EAR, ITAR_Controlled, CUI, FOUO, Proprietary]
+        description: Must match part_specification.distribution_statement for this drawing revision
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this print file belongs to
+      for_specification:
+        target: part_specification
+        cardinality: many-to-one
+        description: Drawing revision this is a controlled copy of
+
+  tooling_list:
+    description: >
+      The complete list of tools required to run a specific NC program at a specific work
+      center. Tied to the nc_program (not just the operation) because tool selection is
+      machine-specific — holder type, taper standard, and stickout limits vary by machine.
+      The tooling list is the authoritative reference for pre-job tool staging and crib pull.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the tooling list record is created
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the operation this tooling list supports
+      nc_program_id:
+        type: uuid
+        required: false
+        description: FK → nc_program.id — the NC program this list was authored for; optional if list precedes program creation
+      nre_package_id:
+        type: uuid
+        required: true
+        description: FK → nre_package.id
+      revision:
+        type: string
+        required: true
+        description: Tooling list revision; advances when tool selections change
+        examples: ["A", "B", "1"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Operation this tooling list supports
+      for_nc_program:
+        target: nc_program
+        cardinality: many-to-one
+        description: NC program this tooling list was authored for
+      in_nre_package:
+        target: nre_package
+        cardinality: many-to-one
+        description: NRE package this tooling list belongs to
+      has_lines:
+        target: tooling_list_line
+        cardinality: one-to-many
+        description: Individual tool pocket entries in this list
+
+  tooling_list_line:
+    description: >
+      One line in a tooling list: a specific tool pocket number (T#1, T#12, etc.) linked
+      to a tool assembly definition from the tool room schema. The description field
+      provides a human-readable summary for the operator. Pocket numbers correspond
+      directly to T-codes in the NC program.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the tooling list line record is created
+      tooling_list_id:
+        type: uuid
+        required: true
+        description: FK → tooling_list.id — the list this line belongs to
+      pocket_number:
+        type: integer
+        required: true
+        description: Tool pocket number in the NC program; corresponds to T-code (e.g., pocket 3 = T#3)
+        examples: [1, 3, 12, 20]
+      tool_assembly_definition_id:
+        type: uuid
+        required: true
+        description: >
+          FK → tool_assembly_definition.id — the assembled tool (cutter + holder + extension)
+          as defined in schemas/tool_room.yaml (forward reference; tool_room.yaml not yet authored)
+      description:
+        type: string
+        required: false
+        description: Human-readable summary of the tool assembly for this pocket
+        examples:
+          - "T#3 — 0.500 chamfer mill, ER20 holder, 3.125 stickout"
+          - "T#12 — 0.250 4-flute carbide endmill, HSK-A63 shrink fit, 2.875 stickout"
+      sequence_position:
+        type: integer
+        required: false
+        description: Display and staging order within the tooling list; not necessarily equal to pocket_number
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      in_tooling_list:
+        target: tooling_list
+        cardinality: many-to-one
+        description: Tooling list this line belongs to
+      requires_tool_assembly:
+        target: tool_assembly_definition
+        cardinality: many-to-one
+        description: >
+          Tool assembly definition specifying cutter, holder, and extension for this pocket
+          (defined in schemas/tool_room.yaml)
+
+  fixture_use:
+    description: >
+      Join entity linking a routing operation to a fixture part. Fixtures are part entities
+      with part_kind: fixture — not a separate entity class. One operation may use multiple
+      fixtures (primary workholding, secondary clamp, locating pin plate, etc.). The
+      required flag distinguishes mandatory fixtures from alternatives available when the
+      primary is in use or unavailable.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the fixture use record is created
+      operation_id:
+        type: uuid
+        required: true
+        description: FK → operation.id — the operation that uses this fixture
+      fixture_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the fixture part (part_kind = fixture must be true on the referenced part)
+      description:
+        type: string
+        required: false
+        description: Role of this fixture in the operation
+        examples: ["primary workholding", "secondary clamp", "locating pin plate", "tombstone face B"]
+      required:
+        type: boolean
+        required: true
+        description: True = fixture is mandatory for this operation; False = alternative fixturing exists
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Operation that uses this fixture
+      uses_fixture:
+        target: part
+        cardinality: many-to-one
+        description: Fixture part (part_kind = fixture) used at this operation

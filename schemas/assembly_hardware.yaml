@@ -1,0 +1,236 @@
+# schemas/assembly_hardware.yaml
+#
+# Layer-1 coverage: No Layer-1 standard (STEP AP238, MTConnect, X12 EDI) defines
+# execution records for hardware installation operations. AS9102 Rev C Form 1
+# requires part accountability at the assembly level; these records provide the
+# traceability substrate for that requirement. AS9100 §8.5.1 requires documented
+# control of production and service provision, which includes special assembly
+# processes such as insert installation and press-fitting.
+#
+# Prose source: extensions/change-management.md (assembly hardware context)
+#
+# Cross-schema references:
+#   assembly_operation → schemas/routing.yaml
+#   job, serial_number → schemas/job.yaml
+#
+# Entities: insert_installation_record, press_fit_record
+
+entities:
+
+  insert_installation_record:
+    description: >
+      Execution record for installing threaded inserts — helicoils, keenserts,
+      nutplates — into a parent part. Tied to an assembly_operation with
+      operation_code INSERT. Records which holes received inserts, torque applied
+      during installation, tang breakoff confirmation (for helicoil-type inserts
+      where the driving tang must be removed after installation), and result.
+      The insert itself is modeled as a part with part_kind: insert.
+      Records are immutable after inspector sign-off — no lifecycle state machine
+      beyond the result field.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the installation record is created
+      assembly_operation_id:
+        type: uuid
+        required: true
+        description: FK → assembly_operation.id — the routing step this record documents (defined in schemas/routing.yaml)
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id — the job on which this installation was performed (defined in schemas/job.yaml)
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the parent part receiving the inserts
+      serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — serialized scope if the parent part is serial-tracked (defined in schemas/job.yaml)
+      insert_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the insert being installed (part_kind = insert, e.g., helicoil, keensert, nutplate)
+      insert_quantity:
+        type: integer
+        required: true
+        description: Number of inserts installed at this step
+      hole_designation:
+        type: string
+        required: false
+        description: Drawing balloon reference or hole identifier for the holes receiving inserts
+        examples: ["H1–H4", "H7, H9", "Holes 1–12 per Dwg Sht 3 Dtl A"]
+      installation_torque_inlb:
+        type: number
+        required: false
+        description: Torque applied during insert installation, in inch-pounds
+      tang_breakoff_required:
+        type: boolean
+        required: true
+        description: True if the driving tang must be broken off after installation (helicoil-type inserts)
+      tang_broken_off:
+        type: boolean
+        required: false
+        description: Confirmation that tang was removed; populated only when tang_breakoff_required is true
+      installed_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — operator who performed the installation
+      installed_date:
+        type: date
+        required: true
+      inspected_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — inspector who signed off the installation; null if self-inspection
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Rework]
+        description: >
+          Pass: installation meets all requirements. Fail: nonconforming — triggers NCR.
+          Rework: installation requires corrective action before re-inspection.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: assembly_operation
+        cardinality: many-to-one
+        description: Assembly routing step this record documents (defined in schemas/routing.yaml)
+      for_job:
+        target: job
+        cardinality: many-to-one
+        description: Job on which this installation was performed (defined in schemas/job.yaml)
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Parent part receiving the inserts
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+        description: Serial number of the parent part if serial-tracked (defined in schemas/job.yaml)
+      uses_insert:
+        target: part
+        cardinality: many-to-one
+        description: The insert part being installed (part_kind = insert)
+      installed_by:
+        target: user
+        cardinality: many-to-one
+        description: Operator who performed the installation
+      inspected_by:
+        target: user
+        cardinality: many-to-one
+        description: Inspector who signed off the installation
+
+  press_fit_record:
+    description: >
+      Execution record for pressing interference-fit components — dowel pins,
+      bearing races, bushings — into a parent part. Tied to an assembly_operation
+      with operation_code PRESS_FIT or similar. Records press force (lbf),
+      displacement (inches), whether force was within the engineering-specified
+      range, and result.
+      Press force is a critical quality characteristic: too low indicates the
+      interference fit may be insufficient; too high indicates potential damage
+      to the bore or pressed component. Both limits matter and must be recorded.
+      Records are immutable after inspector sign-off.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the press-fit record is created
+      assembly_operation_id:
+        type: uuid
+        required: true
+        description: FK → assembly_operation.id — the routing step this record documents (defined in schemas/routing.yaml)
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id — the job on which this pressing was performed (defined in schemas/job.yaml)
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the parent part receiving the pressed component
+      serial_id:
+        type: uuid
+        required: false
+        description: FK → serial_number.id — serialized scope if the parent part is serial-tracked (defined in schemas/job.yaml)
+      inserted_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the pin, bushing, or bearing being pressed (part_kind = pin or purchased_assembly)
+      insert_quantity:
+        type: integer
+        required: true
+        description: Number of components pressed at this step
+      hole_designation:
+        type: string
+        required: false
+        description: Drawing balloon reference or bore identifier for the hole(s) receiving the pressed component
+        examples: ["Bore B per Dwg", "Pin holes H3, H4", "Bearing bore — Sht 2 Dtl C"]
+      press_force_max_lbf:
+        type: number
+        required: false
+        description: Maximum press force recorded during installation, in pounds-force (lbf)
+      press_displacement_in:
+        type: number
+        required: false
+        description: Final displacement achieved when the component reached its installed position, in inches
+      force_within_spec:
+        type: boolean
+        required: false
+        description: True if the maximum press force was within the engineering-specified min/max range; false triggers nonconformance evaluation
+      installed_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — operator who performed the pressing operation
+      installed_date:
+        type: date
+        required: true
+      inspected_by_id:
+        type: uuid
+        required: false
+        description: FK → user.id — inspector who signed off the press-fit record; null if self-inspection
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, Rework]
+        description: >
+          Pass: press-fit meets all force and displacement requirements. Fail: nonconforming
+          — triggers NCR (component may be damaged or insufficiently retained).
+          Rework: re-pressing or replacement required before re-inspection.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_operation:
+        target: assembly_operation
+        cardinality: many-to-one
+        description: Assembly routing step this record documents (defined in schemas/routing.yaml)
+      for_job:
+        target: job
+        cardinality: many-to-one
+        description: Job on which this pressing was performed (defined in schemas/job.yaml)
+      for_part:
+        target: part
+        cardinality: many-to-one
+        description: Parent part receiving the pressed component
+      for_serial:
+        target: serial_number
+        cardinality: many-to-one
+        description: Serial number of the parent part if serial-tracked (defined in schemas/job.yaml)
+      inserts_part:
+        target: part
+        cardinality: many-to-one
+        description: The pin, bushing, or bearing being pressed into the parent part
+      installed_by:
+        target: user
+        cardinality: many-to-one
+        description: Operator who performed the pressing operation
+      inspected_by:
+        target: user
+        cardinality: many-to-one
+        description: Inspector who signed off the press-fit record

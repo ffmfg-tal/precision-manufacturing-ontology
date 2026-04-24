@@ -1,0 +1,685 @@
+# schemas/tool_room.yaml
+#
+# Layer-1 coverage: PARTIAL.
+#   MTConnect CuttingTool asset schema covers tool identity and asset ID on a connected machine
+#   (serial number, life counts, cutting item geometry). It does not cover the catalog hierarchy
+#   (cutter_definition × holder_definition = tool_assembly_definition), presetter measurement
+#   records (tool_preset), the checkout/allocation system (tool_room_allocation), gauge catalog
+#   separate from the calibrated instrument (gauge_definition vs tool_gauge), or cutter
+#   consumption tracking (tool_life_record).
+#   ISO 13399 covers cutting tool representation for catalog interchange (geometry, designation)
+#   but not assembled tool specs, presets, or shop-floor lifecycle records.
+#   STEP AP238 defines machining operations with tool references but has no tool room schema.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   tool_gauge is defined in schemas/inspection.yaml — referenced by tool_preset.presetter_id
+#     and tool_maintenance_event.tool_gauge_id
+#   nc_program is defined in schemas/process_engineering.yaml — referenced by
+#     tool_pocket_requirement.nc_program_id
+#   job, work_order are defined in schemas/job.yaml — referenced throughout
+#   operation is defined in schemas/routing.yaml — referenced by tool_room_allocation.operation_id
+#   part (with part_kind = fixture) is defined in schemas/part.yaml — referenced by
+#     tool_preset.holder_part_id, tool_room_allocation.asset_part_id, and
+#     tool_maintenance_event.asset_part_id
+#
+# Prose source: extensions/tool-room.md
+#
+# Architectural decisions:
+#   cutter_definition is the CATALOG ENTRY for a cutter type — manufacturer, part number,
+#     geometry, coating. It is not a physical item. Cutters are consumable and not individually
+#     serialized by default; consumption is tracked via tool_life_record.
+#   holder_definition is the CATALOG ENTRY for a holder type — style, taper, bore. Physical
+#     holders are serialized parts (part_kind: fixture in schemas/part.yaml); holder_definition
+#     is the spec those parts conform to.
+#   tool_assembly_definition is a specific combination of cutter_definition + holder_definition
+#     + nominal stickout — the abstract spec for a complete assembled tool. This is the entity
+#     referenced by tooling lists and nc_program pocket requirements. It is the SPEC; tool_preset
+#     is the corresponding physical measurement event.
+#   gauge_definition is the CATALOG ENTRY for a gauge type (presetter model, caliper model,
+#     CMM probe type). tool_gauge instances (in schemas/inspection.yaml) are the physical
+#     calibrated instruments. A future migration may add gauge_definition_id FK to tool_gauge;
+#     no gauge_definition relationships key exists in this schema until that FK is added.
+#   tool_preset is a measured offset record for a specific physical tool assembly (serialized
+#     holder part + cutter) as measured on the presetter on a specific date. One preset per
+#     measurement event; old records are preserved as historical evidence.
+#   tool_pocket_requirement is the SPEC: pocket number → tool_assembly_definition as encoded
+#     in an nc_program.
+#   tool_pocket_assignment is the ACTUAL: which tool_preset was loaded into which pocket for
+#     a specific work_order execution.
+#   tool_room_allocation is the checkout record for a physical fixture or holder (part with
+#     part_kind: fixture). Physical holders and fixtures are parts — there is no separate
+#     holder_instance or fixture_instance entity.
+#   tool_maintenance_event uses a discriminator (asset_type) with two nullable FKs:
+#     asset_part_id for Fixture/Holder assets; tool_gauge_id for Gauge assets.
+#   tool_life_record tracks cutter consumption per job/work order run; it is the primary
+#     lifecycle mechanism for non-serialized consumable cutters.
+#
+# Entities: cutter_definition, holder_definition, tool_assembly_definition, gauge_definition,
+#           tool_preset, tool_pocket_requirement, tool_pocket_assignment, tool_room_allocation,
+#           tool_maintenance_event, tool_life_record
+
+entities:
+
+  cutter_definition:
+    description: >
+      Catalog entry for a cutter type — the abstract specification for a cutting tool:
+      manufacturer, part number, geometry, material, and coating. cutter_definition is not
+      a physical item. Cutters are consumable and not individually serialized by default;
+      a single cutter_definition may correspond to many physical cutters consumed over time.
+      Cutter consumption and life tracking is handled via tool_life_record. Physical cutter
+      inventory (purchase orders, stock counts) links to cutter_definition via the item
+      master, not via a separate instance table.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the cutter type is registered in the catalog
+      manufacturer:
+        type: string
+        required: true
+        description: Cutter manufacturer name
+        examples: ["Kennametal", "Seco", "Iscar", "OSG", "Sandvik"]
+      manufacturer_part_number:
+        type: string
+        required: true
+        description: Manufacturer catalog part number
+      description:
+        type: string
+        required: true
+        description: Human-readable cutter description including key geometry
+        examples: ["0.500 4-flute carbide bull endmill, 0.030 corner radius", "0.250 carbide drill, 135° split point"]
+      tool_type:
+        type: enum
+        required: true
+        values: [EndMill, FaceMill, Drill, Reamer, Tap, BoreTool, ChamferMill, ThreadMill, TurningInsert, GrooveInsert, Other]
+      diameter_in:
+        type: number
+        required: false
+        description: Cutting diameter in inches
+      corner_radius_in:
+        type: number
+        required: false
+        description: Corner radius in inches; 0 for sharp corners
+      flute_count:
+        type: integer
+        required: false
+        description: Number of flutes or cutting edges
+      overall_length_in:
+        type: number
+        required: false
+        description: Overall cutter length in inches
+      material:
+        type: enum
+        required: false
+        values: [Carbide, HSS, Ceramic, CBN, Diamond, Other]
+        description: Substrate material
+      coating:
+        type: string
+        required: false
+        description: Surface coating designation
+        examples: ["TiAlN", "AlCrN", "TiCN", "uncoated"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      used_in_assemblies:
+        target: tool_assembly_definition
+        cardinality: one-to-many
+        description: Tool assembly definitions that specify this cutter type
+      tracked_in_life_records:
+        target: tool_life_record
+        cardinality: one-to-many
+        description: Cutter consumption and life records for this cutter type
+
+  holder_definition:
+    description: >
+      Catalog entry for a holder type — the specification for a holder style, taper standard,
+      and bore size. holder_definition is not a physical item. Physical holders are serialized
+      parts with part_kind: fixture in schemas/part.yaml; the holder_definition is the spec
+      those parts conform to. One holder_definition may correspond to many serialized holder
+      parts tracked via tool_room_allocation.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the holder type is registered in the catalog
+      manufacturer:
+        type: string
+        required: true
+        description: Holder manufacturer name
+        examples: ["BIG-PLUS", "Haimer", "Kennametal", "Schunk", "Rego-Fix"]
+      manufacturer_part_number:
+        type: string
+        required: true
+        description: Manufacturer catalog part number
+      description:
+        type: string
+        required: true
+        description: Human-readable holder description
+        examples: ["ER20 collet chuck, CAT40 taper, 4.00 gauge length", "16mm bore hydraulic chuck, BT40"]
+      holder_style:
+        type: enum
+        required: true
+        values: [Collet, HydroChuck, ShrinkFit, MechanicalChuck, BoreTool, TurningBlock, FaceGroove, Other]
+      taper_standard:
+        type: enum
+        required: true
+        values: [CAT40, CAT50, BT30, BT40, BT50, HSK63A, HSK100A, CAPTO_C6, Other]
+        description: Spindle interface taper standard
+      collet_series:
+        type: string
+        required: false
+        description: Collet series designation; null if not a collet holder
+        examples: ["ER20", "ER32", "ER40", "TG100"]
+      bore_diameter_in:
+        type: number
+        required: false
+        description: Cutter bore or collet range maximum in inches
+      gauge_length_in:
+        type: number
+        required: false
+        description: Holder gauge line to nose in inches; used to compute assembled tool length
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      used_in_assemblies:
+        target: tool_assembly_definition
+        cardinality: one-to-many
+        description: Tool assembly definitions that specify this holder type
+
+  tool_assembly_definition:
+    description: >
+      A specific combination of one cutter_definition plus one holder_definition at a nominal
+      stickout — the abstract specification for a complete assembled tool. This is the entity
+      that tooling lists and nc_program pocket requirements reference; it represents what a
+      machinist should build when setting up a given tool number. tool_assembly_definition is
+      the SPEC (abstract). The corresponding physical measurement event is a tool_preset —
+      a specific serialized holder with a cutter loaded to a measured stickout as recorded on
+      the presetter on a specific date. One tool_assembly_definition may have many tool_preset
+      records over time (different holders, different measurement dates, cutter changes).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      cutter_definition_id:
+        type: uuid
+        required: true
+        description: FK → cutter_definition.id
+      holder_definition_id:
+        type: uuid
+        required: true
+        description: FK → holder_definition.id
+      description:
+        type: string
+        required: true
+        description: Human-readable assembly description including tool number convention
+        examples: ["T#3 — 0.500 chamfer mill, ER20 holder, 3.125 stickout", "T#1 — 3.0 face mill, CAT40 arbor"]
+      nominal_stickout_in:
+        type: number
+        required: true
+        description: Nominal cutter stickout from holder gauge line in inches
+      stickout_tolerance_in:
+        type: number
+        required: false
+        description: Allowed stickout tolerance ± in inches; tool_preset.within_tolerance is evaluated against this
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      uses_cutter:
+        target: cutter_definition
+        cardinality: many-to-one
+        description: Cutter type specified by this assembly
+      uses_holder:
+        target: holder_definition
+        cardinality: many-to-one
+        description: Holder type specified by this assembly
+      has_presets:
+        target: tool_preset
+        cardinality: one-to-many
+        description: Physical measurement records for assembled instances of this spec
+      pocket_requirements:
+        target: tool_pocket_requirement
+        cardinality: one-to-many
+        description: NC program pocket requirements that specify this assembly
+
+  gauge_definition:
+    description: >
+      Catalog entry for a gauge type — the specification for a class of measurement instrument:
+      presetter model, caliper model, CMM probe type, etc. gauge_definition defines what a gauge
+      IS (manufacturer, model, measurement range, default calibration interval); it is not a
+      physical instrument. Physical calibrated instruments are tool_gauge records defined in
+      schemas/inspection.yaml. The relationship between gauge_definition and tool_gauge is
+      currently implicit (by name and type); a future schema pass may add a gauge_definition_id
+      FK to tool_gauge to make this link explicit without modifying the existing calibration
+      tracking structure.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the gauge type is registered in the catalog
+      name:
+        type: string
+        required: true
+        description: Descriptive name for the gauge type
+        examples: ["Zoller Venturion 450 Presetter", "Mitutoyo 500-series Digimatic Caliper", "Renishaw TP20 CMM Probe"]
+      gauge_type:
+        type: enum
+        required: true
+        values: [Presetter, Caliper, Micrometer, CMM_Probe, Go_NoGo, Ring_Gauge, Pin_Gauge, Torque_Wrench, Height_Gauge, Surface_Plate, Optical_Comparator, XRF_Gun, Other]
+      manufacturer:
+        type: string
+        required: false
+      manufacturer_model:
+        type: string
+        required: false
+        description: Manufacturer model designation
+        examples: ["Venturion 450", "500-196-30", "TP20"]
+      measurement_range:
+        type: string
+        required: false
+        description: Measurement range and resolution as a human-readable string
+        examples: ["0–6 in, 0.0001 in resolution", "0–150 in-lb, ±2%", "Ø up to 400mm, 0.001mm resolution"]
+      calibration_interval_days:
+        type: integer
+        required: false
+        description: Default calibration interval in days for instances of this gauge type; may be overridden on individual tool_gauge records
+      notes:
+        type: string
+        required: false
+
+    # No relationships key: tool_gauge instances (schemas/inspection.yaml) do not yet carry a
+    # gauge_definition_id FK. A future migration may add this FK to tool_gauge; at that point
+    # a has_instances relationship (one-to-many → tool_gauge) would be added here.
+
+  tool_preset:
+    description: >
+      A measured offset record for a specific physical tool assembly — a named serialized
+      holder (part.id, part_kind = fixture) with a cutter loaded to a measured stickout,
+      measured on the presetter on a specific date. One tool_preset per measurement event.
+      When a cutter is changed or the assembly is remeasured, a new tool_preset is created;
+      old records are preserved as historical measurement evidence. The presetter used
+      (presetter_id → tool_gauge.id) is a calibrated instrument tracked in
+      schemas/inspection.yaml, ensuring full calibration traceability for measured offsets.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted at the presetter measurement event
+      tool_assembly_definition_id:
+        type: uuid
+        required: true
+        description: FK → tool_assembly_definition.id — which assembly spec this preset satisfies
+      holder_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the specific serialized holder used (part_kind = fixture)
+      presetter_id:
+        type: uuid
+        required: true
+        description: FK → tool_gauge.id — the presetter used for measurement (defined in schemas/inspection.yaml)
+      measured_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — operator who performed the presetter measurement
+      measured_date:
+        type: date
+        required: true
+        description: Date the preset was measured
+      measured_length_in:
+        type: number
+        required: true
+        description: Measured tool length offset in inches
+      measured_diameter_in:
+        type: number
+        required: true
+        description: Measured tool diameter in inches
+      stickout_actual_in:
+        type: number
+        required: false
+        description: Actual stickout achieved in inches
+      within_tolerance:
+        type: boolean
+        required: true
+        description: True if stickout_actual_in is within the ± stickout_tolerance_in of the tool_assembly_definition
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_assembly:
+        target: tool_assembly_definition
+        cardinality: many-to-one
+        description: The assembly spec this preset was built to satisfy
+      for_holder:
+        target: part
+        cardinality: many-to-one
+        description: Serialized holder part (part_kind = fixture) used in this assembly
+      measured_with:
+        target: tool_gauge
+        cardinality: many-to-one
+        description: Presetter used for measurement; defined in schemas/inspection.yaml
+      measured_by:
+        target: user
+        cardinality: many-to-one
+      used_in_assignments:
+        target: tool_pocket_assignment
+        cardinality: one-to-many
+        description: Pocket assignment records where this preset was loaded
+
+  tool_pocket_requirement:
+    description: >
+      The tool requirement encoded in an NC program: a specific pocket number must be loaded
+      with a specific tool_assembly_definition before the program can run. This is the SPEC —
+      what the nc_program needs. One tool_pocket_requirement per pocket per nc_program.
+      nc_program is defined in schemas/process_engineering.yaml; this entity references it
+      by FK only. The corresponding actual event (what was actually loaded for a given
+      work_order execution) is tool_pocket_assignment.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      nc_program_id:
+        type: uuid
+        required: true
+        description: FK → nc_program.id (defined in schemas/process_engineering.yaml)
+      pocket_number:
+        type: integer
+        required: true
+        description: Tool pocket or turret station number as programmed in the NC code
+        examples: [1, 3, 5, 12]
+      tool_assembly_definition_id:
+        type: uuid
+        required: true
+        description: FK → tool_assembly_definition.id — the required tool assembly for this pocket
+      description:
+        type: string
+        required: false
+        description: Human-readable pocket/tool description from the tooling list
+        examples: ["T03 — chamfer mill", "T01 — face mill roughing pass"]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_nc_program:
+        target: nc_program
+        cardinality: many-to-one
+        description: NC program that encodes this pocket requirement; defined in schemas/process_engineering.yaml
+      requires_assembly:
+        target: tool_assembly_definition
+        cardinality: many-to-one
+        description: The tool assembly spec required in this pocket
+
+  tool_pocket_assignment:
+    description: >
+      The actual assignment for a specific work_order execution: which tool_preset (a measured,
+      physical tool assembly) was loaded into which machine pocket, by whom, and when. Bridges
+      the abstract NC program requirement (tool_pocket_requirement) to the physical event
+      (tool_preset). One tool_pocket_assignment per pocket per work_order. If a cutter is
+      changed mid-run, a new assignment record is created for that pocket when the replacement
+      preset is loaded. work_order is defined in schemas/job.yaml.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      work_order_id:
+        type: uuid
+        required: true
+        description: FK → work_order.id (defined in schemas/job.yaml)
+      pocket_number:
+        type: integer
+        required: true
+        description: Machine table pocket number loaded
+      tool_preset_id:
+        type: uuid
+        required: true
+        description: FK → tool_preset.id — the measured tool assembly loaded into this pocket
+      loaded_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — machinist who loaded the tool
+      loaded_date:
+        type: datetime
+        required: true
+        description: Datetime when the tool was loaded (ISO 8601)
+      removed_date:
+        type: datetime
+        required: false
+        description: Datetime when the tool was removed; null while still loaded
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_work_order:
+        target: work_order
+        cardinality: many-to-one
+        description: Work order execution this assignment belongs to; defined in schemas/job.yaml
+      uses_preset:
+        target: tool_preset
+        cardinality: many-to-one
+        description: The measured tool assembly loaded
+      loaded_by:
+        target: user
+        cardinality: many-to-one
+
+  tool_room_allocation:
+    description: >
+      Checkout record for a physical fixture or holder (a part with part_kind: fixture in
+      schemas/part.yaml) checked out to a job or operation. Tracks custody: who took it,
+      when, expected return, actual return, and disposition outcome. Physical holders and
+      fixtures are serialized parts — there is no separate holder_instance or fixture_instance
+      entity; asset_part_id references part.id with the constraint that part.part_kind =
+      fixture. A part may have multiple sequential allocation records over its lifetime;
+      only one should be in status = CheckedOut at a time.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      asset_part_id:
+        type: uuid
+        required: true
+        description: FK → part.id — the physical fixture or holder being checked out (part_kind = fixture)
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id (defined in schemas/job.yaml)
+      operation_id:
+        type: uuid
+        required: false
+        description: FK → operation.id — specific operation requiring this asset (defined in schemas/routing.yaml)
+      checked_out_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — who checked out the asset
+      checked_out_date:
+        type: datetime
+        required: true
+        description: Checkout datetime (ISO 8601)
+      expected_return_date:
+        type: date
+        required: false
+        description: Expected return date for scheduling and overdue tracking
+      returned_date:
+        type: datetime
+        required: false
+        description: Actual return datetime; null while asset is still checked out
+      status:
+        type: enum
+        required: true
+        values: [CheckedOut, Returned, Lost, Damaged]
+        description: >
+          CheckedOut: asset is currently out of the tool crib.
+          Returned: asset has been returned in serviceable condition.
+          Lost: asset cannot be located; triggers investigation and replacement.
+          Damaged: asset returned in damaged condition; triggers tool_maintenance_event.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_asset:
+        target: part
+        cardinality: many-to-one
+        description: Fixture or holder part being allocated (part_kind = fixture)
+      for_job:
+        target: job
+        cardinality: many-to-one
+        description: Job this asset is allocated to; defined in schemas/job.yaml
+      for_operation:
+        target: operation
+        cardinality: many-to-one
+        description: Specific operation requiring this asset; defined in schemas/routing.yaml
+      checked_out_by:
+        target: user
+        cardinality: many-to-one
+
+  tool_maintenance_event:
+    description: >
+      A service event performed on a physical tool or instrument: sharpening, cleaning, repair,
+      inspection, recertification, or retirement. Covers two asset classes via a discriminator
+      field (asset_type) with two nullable FKs. When asset_type = Fixture or Holder:
+      asset_part_id → part.id is populated and tool_gauge_id is null. When asset_type = Gauge:
+      tool_gauge_id → tool_gauge.id (schemas/inspection.yaml) is populated and asset_part_id
+      is null. The Cutter asset_type is available for tracking events on specific cutter
+      inventory where relevant, but cutters are not individually serialized by default; see
+      tool_life_record for typical cutter lifecycle tracking.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      asset_type:
+        type: enum
+        required: true
+        values: [Fixture, Holder, Gauge, Cutter]
+        description: Discriminator — determines which FK (asset_part_id or tool_gauge_id) is populated
+      asset_part_id:
+        type: uuid
+        required: false
+        description: FK → part.id — populated when asset_type = Fixture or Holder; null otherwise
+      tool_gauge_id:
+        type: uuid
+        required: false
+        description: FK → tool_gauge.id — populated when asset_type = Gauge; null otherwise (defined in schemas/inspection.yaml)
+      event_type:
+        type: enum
+        required: true
+        values: [Sharpen, Clean, Repair, Inspect, Recertify, Retire]
+        description: >
+          Sharpen: cutter or tool edge restored by grinding.
+          Clean: cleaning event (coolant flush, ultrasonic clean).
+          Repair: damage repair.
+          Inspect: condition inspection without calibration.
+          Recertify: full recertification event (may trigger calibration_record for gauges).
+          Retire: permanent removal from service.
+      performed_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — who performed the maintenance
+      event_date:
+        type: date
+        required: true
+        description: Date the maintenance was performed
+      description:
+        type: string
+        required: true
+        description: Description of work performed
+      result:
+        type: enum
+        required: true
+        values: [Pass, Fail, RetiredAfterService]
+        description: >
+          Pass: asset returned to serviceable condition.
+          Fail: asset could not be returned to service; triggers replacement or disposal.
+          RetiredAfterService: asset was permanently retired as a planned outcome of this event.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_fixture:
+        target: part
+        cardinality: many-to-one
+        description: Fixture or holder part; populated when asset_type = Fixture or Holder
+      for_gauge:
+        target: tool_gauge
+        cardinality: many-to-one
+        description: Calibrated instrument; populated when asset_type = Gauge; defined in schemas/inspection.yaml
+      performed_by:
+        target: user
+        cardinality: many-to-one
+
+  tool_life_record:
+    description: >
+      Cumulative usage tracking for a cutter type on a specific job or work order run.
+      Records how many parts were produced in the run, optionally the running total across
+      all runs on that cutter, and whether a tool change was triggered at the end of the run.
+      This is the primary lifecycle mechanism for non-serialized consumable cutters. Over time,
+      tool_life_record entries for a given cutter_definition_id build a usage history that
+      informs tool life expectations, optimal change intervals, and purchasing decisions.
+      tool_assembly_definition_id is optional but recommended when the cutter was run in a
+      specific assembly context; it enables life analysis broken down by assembly spec.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      cutter_definition_id:
+        type: uuid
+        required: true
+        description: FK → cutter_definition.id — which cutter type was used in this run
+      tool_assembly_definition_id:
+        type: uuid
+        required: false
+        description: FK → tool_assembly_definition.id — the assembly context for this run (optional)
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id (defined in schemas/job.yaml)
+      work_order_id:
+        type: uuid
+        required: false
+        description: FK → work_order.id — specific work order run (defined in schemas/job.yaml)
+      parts_run:
+        type: integer
+        required: true
+        description: Number of parts produced during this run
+      cumulative_parts_run:
+        type: integer
+        required: false
+        description: Total parts produced on this cutter across all runs; populated when the cutter is individually tracked across jobs
+      tool_change_required:
+        type: boolean
+        required: true
+        description: True if the cutter was replaced after this run due to wear, breakage, or scheduled change
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_cutter:
+        target: cutter_definition
+        cardinality: many-to-one
+        description: The cutter type consumed in this run
+      for_assembly:
+        target: tool_assembly_definition
+        cardinality: many-to-one
+        description: The assembly spec context for this run (optional)
+      for_job:
+        target: job
+        cardinality: many-to-one
+        description: Job during which this run occurred; defined in schemas/job.yaml
+      for_work_order:
+        target: work_order
+        cardinality: many-to-one
+        description: Specific work order run; defined in schemas/job.yaml

@@ -213,6 +213,84 @@ No standard integrates these regulatory requirements into the operational data m
 
 ---
 
+### 9. Process Engineering / NRE
+
+**What this domain covers:**
+The engineering and prove-out work required to manufacture a part for the first time or after a significant revision: NC programming, CAM work, fixture design, CMM programming, inspection planning, and the first-piece prove-out that certifies the process is production-ready. NRE (Non-Recurring Engineering) is the cost and document set that locks together a specific drawing revision and routing revision.
+
+**Layer-1 gap:**
+STEP AP238 covers process plan structure for CNC but has no concept of the NC program file itself, the prove-out event, or the CAM-to-NC relationship. STEP AP242 covers PMI and key characteristics but not the inspection plan ordering. Neither standard has an NRE package as an organizing entity.
+
+**manufacturer extension:**
+`extensions/process-engineering-nre.md` defines the NRE package as the revision-lock envelope. Key architectural decisions: `cam_file → nc_program` is one-to-many (one CAM project posts to multiple machines); `nc_program` is per-operation × per-machine; `nre_package` locks `part_specification_id` + `routing_id` together so that either a drawing or routing revision change requires a new NRE package and re-approval.
+
+**Entities:** `nre_package`, `nc_program`, `cam_file`, `setup_sheet`, `cmm_program`, `inspection_plan`, `prove_out_record`, `print_file`, `tooling_list`, `tooling_list_line`, `fixture_use`
+
+**Canonical schema:** `schemas/process_engineering.yaml`
+
+---
+
+### 10. Tool Room
+
+**What this domain covers:**
+The definition, preparation, allocation, and lifecycle management of cutting tools, workholding fixtures, and measurement gauge catalog entries. Bridges NC program tool requirements to the physical tool room inventory. Physical serialized holders and fixtures are `part` entities with `part_kind: fixture`; this domain defines the catalog definitions and operational records that govern them.
+
+**Layer-1 gap:**
+MTConnect CuttingTool asset schema covers tool identity and asset ID but not the catalog hierarchy (cutter_definition × holder_definition = tool_assembly_definition), presetter measurement records (tool_preset), checkout/allocation system (tool_room_allocation), or a gauge catalog separate from the calibrated instrument (`tool_gauge`, which is in Domain 7). ISO 13399 covers cutting tool data exchange but not the holder+cutter assembly definition or the presetter measurement workflow.
+
+**manufacturer extension:**
+`extensions/tool-room.md` defines the two-level catalog model (definition vs. instance) and the full workflow from NC program authoring (tool_pocket_requirement) through preset measurement (tool_preset) through machine loading (tool_pocket_assignment). Physical holders and fixtures remain `part.id` records; the tool room tracks their allocation and maintenance without creating a separate instance entity.
+
+**Entities:** `cutter_definition`, `holder_definition`, `tool_assembly_definition`, `gauge_definition`, `tool_preset`, `tool_pocket_requirement`, `tool_pocket_assignment`, `tool_room_allocation`, `tool_maintenance_event`, `tool_life_record`
+
+**Note:** `tool_gauge` (the serialized calibrated instrument) and `calibration_record` are in Domain 7 / `schemas/inspection.yaml`. This domain's `gauge_definition` is the catalog entry; `tool_gauge` instances reference it conceptually.
+
+**Canonical schema:** `schemas/tool_room.yaml`
+
+---
+
+### 11. Packaging
+
+**What this domain covers:**
+Packaging specification authoring and packaging execution evidence. Treats packaging as a traceable manufacturing operation per AS9100 §8.5.4. Covers MIL-STD-2073 preservation levels (A/B/C), ESD protection, desiccant and humidity indicator requirements, MIL-STD-129/130 labeling, and 3D-printed or machined packaging inserts (which are manufactured parts with `part_kind: packaging_insert`).
+
+**Layer-1 gap:**
+No Layer-1 manufacturing data standard defines packaging as a traceable operation with a data schema. MIL-STD-2073 defines preservation requirements in prose but has no data model. Shipment records (`schemas/shipment.yaml`) track logistics but not the packaging execution evidence required for AS9100 §8.5.4 preservation of conformity.
+
+**manufacturer extension:**
+`extensions/packaging.md` defines the three-entity packaging model: `packaging_specification` (the governing document per subject), `packing_record` (the immutable execution evidence for a specific shipment/serial/lot), and `packaging_item` (individual packaging components with material lot traceability). Packaging inserts are `part` entities and participate in the full part lifecycle.
+
+**Entities:** `packaging_specification`, `packing_record`, `packaging_item`
+
+**Canonical schema:** `schemas/packaging.yaml`
+
+---
+
+### 12. Change Management
+
+**What this domain covers:**
+Authorization of engineering changes (ECNs) and deviation/waiver requests. ECNs authorize revision changes to drawings and routings; they trigger cascades but do not model the cascade logic itself. Deviations/waivers authorize use of material or product that deviates from specification, with customer or DER approval.
+
+**Layer-1 gap:**
+No Layer-1 standard defines ECN or deviation/waiver as data entities. AS9100 §8.3.6 requires documented engineering change control; AS9100 §8.7.1 covers nonconforming output. The data structures that satisfy these clauses are pure manufacturer-layer entities.
+
+**manufacturer extension:**
+`extensions/change-management.md` covers both entities and their distinction from the internal quality records (`nonconformance_report`, which captures the nonconformance; `deviation_waiver`, which is the customer/DER authorization document that may reference an NCR). ECN lifecycle: Draft → UnderReview → Approved → Released. Deviation/waiver has expiry (date- and quantity-limited).
+
+**Entities:** `engineering_change_notice`, `deviation_waiver`
+
+**Canonical schema:** `schemas/change_management.yaml`
+
+---
+
+### Cross-Domain Extensions (Assembly Hardware and Operator Qualification)
+
+**Assembly Hardware** — execution records for assembly operations involving threaded inserts (`insert_installation_record`) and press-fit components (`press_fit_record`). These are immutable quality records, analogous to `torque_readings_record` in Domain 5, that provide per-serial traceability for mechanical assembly operations. Defined in `schemas/assembly_hardware.yaml`; conceptually part of Domain 5 (Assembly) and Domain 7 (Quality).
+
+**Operator Qualification** — records that a specific operator is trained and currently certified to perform a specific process, operation code, or equipment type. Distinct from `nadcap_certification` (facility-level Nadcap accreditation) — this tracks individual operator currency. Required for special processes (welding, NDT, torque-critical assembly, threaded insert installation). Defined in `schemas/operator_qualification.yaml`.
+
+---
+
 ## UUID Discipline
 
 UUID is the connective tissue across all layers. Every entity in the digital thread has a UUID v4 identifier, minted by the production system Pro, that persists as the entity moves through format translations:

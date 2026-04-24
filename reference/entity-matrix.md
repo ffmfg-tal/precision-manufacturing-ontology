@@ -13,9 +13,11 @@ The ontology's strength is narrative and compositional: every archetype walks en
 
 **Phase 3.4 update (2026-04-23).** Phase 3.4 completed assembly-domain schema authoring: `schemas/assembly.yaml` (torque_specification, torque_sequence, torque_readings_record, witness_inspection, kit_record) and `schemas/inspection.yaml` (inspection_event, calibration_record, tool_gauge, key_characteristic). Three entities resolved as aliases/covered: fai_package → certification_package; quality_engineer → user.role; process_identification → material_identification callout_type. Schema defined now at 73 ✅ / 9 🔴. State machine added for tool_gauge (10 transitions, Current/Due_Soon/Overdue/Quarantined/Retired); calibration_record lifecycle corrected to ⬜ (immutable record; lifecycle on tool_gauge). Phase 3.3 (2026-04-22) completed state machine enumeration for material_lot, first_article_inspection, nonconformance_report, outside_process_operation, purchase_order, customer_purchase_order.
 
+**Phase 2 update (2026-04-24).** Added Domains 9–12 (Process Engineering/NRE, Tool Room, Packaging, Change Management) plus Assembly Hardware and Operator Qualification cross-domain extensions. Entity count increases from 82 to 117. Five Phase 3.4 schema fixes applied: kit_record, torque_readings_record, torque_sequence, torque_specification, witness_inspection now correctly reference schemas/assembly.yaml; calibration_record, inspection_event, key_characteristic, tool_gauge now correctly reference schemas/inspection.yaml. Four new composition archetype walks added (Walks 4–7: calibration recall, ECN mid-production, fixture lifecycle, concurrent revision production).
+
 **Weakest columns.** Cross-ref integrity remains the weakest column: most Phase 2–4 entities have not been added to the UUID entity table in `extensions/uuid-discipline.md`. State machine has 2 remaining 🔴: quality_flowdown_plan (schema present, status field addition needed before graph can be written) and one other. Relationships typed is now all-green on schema-defined entities; the 🟡 cluster is aliases and display nodes.
 
-**Reddest clusters.** The assembly-domain red cluster is fully resolved. Remaining reds concentrate in: (1) external standards not authored here (machine_event, qif_results_document, x12_856_asn) — always 🔴/⬜ for schema; (2) string/enum decisions per 1.7 (country, heat_number, spec_body, uns_number, usml_category); (3) cross-ref integrity for all entities not yet added to UUID table; (4) quality_flowdown_plan state machine (attribute gap blocks graph authoring).
+**Reddest clusters.** The assembly-domain and inspection-domain red clusters are fully resolved (schemas/assembly.yaml and schemas/inspection.yaml authored in Phase 3.4). Phase 2 added 35 entities across Domains 9–12 and cross-domain extensions; all 35 enter the matrix with ✅ Schema defined — no new reds introduced by Phase 2. Remaining reds concentrate in: (1) external standards not authored here (machine_event, qif_results_document, x12_856_asn) — always 🔴/⬜ for schema; (2) string/enum decisions per 1.7 (country, heat_number, spec_body, uns_number, usml_category); (3) cross-ref integrity for all entities not yet added to UUID table; (4) quality_flowdown_plan state machine (attribute gap blocks graph authoring).
 
 **Cross-cutting patterns.** Three patterns recur: (a) **taxonomic open questions** deferred to "the matrix task to resolve" — `assembly` vs recursive `part`, `fastener` scope, `quality_engineer` vs role, `heat_number` / `uns_number` / `country` / `spec_body` / `nadcap_category` as entities vs strings, cert package nesting, `supplier` / `vendor` / `approved_vendor_list_entry` aliasing. The matrix surfaces these in their row notes but does not resolve them; resolution belongs to the deepening pass. (b) **Lifecycle entities without state machines** — jobs, operations, POs, shipments, FAIs, NCRs, and material lots have enum status fields but no documented transition rules, guards, or terminal-state definitions. (c) **Carbon framing residue is minor** — only `material` shows direct vocabulary borrowing (the layered-disclosure approach and substance/form decomposition trace to Barbin's schema per `carbon-os-mapping.md`). Most entities are defined on their own terms.
 
@@ -30,7 +32,7 @@ The ontology's strength is narrative and compositional: every archetype walks en
 
 ## Matrix
 
-Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 82 (includes `receipt` and `work_order` added Phase 2.C/2.E; `approved_supplier_list_entry` and `supplier_qualification_event` renamed Phase 2.E).
+Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 117 (82 original + 35 added Phase 2; includes `receipt` and `work_order` added Phase 2.C/2.E; `approved_supplier_list_entry` and `supplier_qualification_event` renamed Phase 2.E).
 
 ---
 
@@ -138,6 +140,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Distinct many-to-many edge entity per decision 1.1; schema defined Phase 2.B with polymorphic FK pattern per decision 1.9. |
 | Canonical framing | ✅ | Own terms. |
 
+### cam_file
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | nre_package_id, operation_id, file_reference, cad_model_reference, cam_system, revision, created_by_id, created_date, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `in_nre_package → nre_package` (many-to-one), `created_by → user` (many-to-one), `posts_to_nc_programs → nc_program` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; currency tracked via nre_package and nc_program status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no Layer-1 standard (STEP AP238, QIF) defines a CAM file entity. |
+| Composition rule | ✅ | Execution record: source CAM project for one operation; posts to one or more nc_program records via different post-processors. |
+| Canonical framing | ✅ | Own terms. |
+
 ### calibration_record
 
 | Dimension | Status | Note |
@@ -189,6 +204,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | ✅ | QIF LinearCharacteristic / Results directly map. |
 | Composition rule | ✅ | Primitive inside form3 characteristics array; embedded in quality.yaml Phase 2.D. Not first-class (no independent UUID). |
 | Canonical framing | ✅ | QIF terms. |
+
+### cmm_program
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | operation_id, work_center_id, nre_package_id, program_name, revision, cmm_system, file_reference, qif_template_reference, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `at_work_center → work_center` (many-to-one), `in_nre_package → nre_package` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; currency tracked via nre_package status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | QIF plan file optionally referenced via qif_template_reference; QIF covers measurement plans but not CMM program files directly. |
+| Composition rule | ✅ | Simple record: machine-executable CMM program distinct from inspection_plan (method-agnostic governance document). |
+| Canonical framing | ✅ | Own terms. |
 
 ### coc
 
@@ -281,6 +309,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Distinct (inbound X12 850) per decision 1.4; schema defined Phase 2.E. |
 | Canonical framing | ✅ | X12 + aerospace PO terms. |
 
+### cutter_definition
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | manufacturer, manufacturer_part_number, description, tool_type, diameter_in, corner_radius_in, flute_count, overall_length_in, material, coating, notes; all fields specified. |
+| Relationships typed | ✅ | `used_in_assemblies → tool_assembly_definition` (one-to-many), `tracked_in_life_records → tool_life_record` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing; cutters are consumable, lifecycle tracked via tool_life_record. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | ISO 13399 covers cutting tool representation for catalog interchange; schema captures key geometry fields aligned with ISO 13399 concepts but no formal field-level mapping. |
+| Composition rule | ✅ | Catalog entity: abstract cutter type specification; not a physical item. Physical cutter consumption tracked via tool_life_record. |
+| Canonical framing | ✅ | Own terms. |
+
 ### data_classification
 
 | Dimension | Status | Note |
@@ -306,6 +347,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | DFARS 252.225-7009 cited throughout; not a Layer-1 standard. |
 | Composition rule | ✅ | Alias of `certification_document` (cert_type: DFARS_Declaration) per decision 1.6; discriminator in `schemas/certification_document.yaml`. |
 | Canonical framing | ✅ | DFARS terms. |
+
+### deviation_waiver
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/change_management.yaml` (Phase 2) |
+| Attributes complete | ✅ | dw_number, document_type [Deviation/Waiver], description, part_id, part_specification_id, serial_id, lot_id, quantity_affected, ncr_id, nonconformance_description, proposed_disposition, initiator_id, initiated_date, status, approved_by (free-text string — external authority), approved_date, expiry_date, expiry_quantity, customer_id, notes; all fields specified. |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `for_spec → part_specification` (many-to-one), `for_serial → serial_number` (many-to-one), `for_lot → material_lot` (many-to-one), `references_ncr → nonconformance_report` (many-to-one), `initiated_by → user` (many-to-one), `for_customer → customer` (many-to-one); all with cardinality. |
+| State machine | ✅ | Draft → Submitted → Approved / Rejected; Expired terminal state (expiry_date reached or expiry_quantity consumed). Schema defined in `schemas/change_management.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §8.7.1 requires documented concessions; this entity is the data record for that requirement. No Layer-1 data standard defines a deviation/waiver entity. |
+| Composition rule | ✅ | Lifecycle entity with document_type discriminator (Deviation vs Waiver); distinct from nonconformance_report (internal quality record) — waiver is the external authorization document. |
+| Canonical framing | ✅ | AS9100 / aerospace CM terms. |
+
+### engineering_change_notice
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/change_management.yaml` (Phase 2) |
+| Attributes complete | ✅ | ecn_number, title, description, change_type [Drawing/Routing/Material/Process/Specification], initiator_id, initiated_date, status, approved_by_id, approved_date, effective_date, affected_part_id, old_part_specification_id, new_part_specification_id, old_routing_id, new_routing_id, customer_notification_required, customer_approval_required, customer_approval_id, notes; all fields specified. |
+| Relationships typed | ✅ | `initiated_by → user` (many-to-one), `approved_by → user` (many-to-one), `affects_part → part` (many-to-one), `supersedes_spec → part_specification` (many-to-one), `introduces_spec → part_specification` (many-to-one), `obsoletes_routing → routing` (many-to-one), `introduces_routing → routing` (many-to-one), `requires_customer_approval → customer_approval` (many-to-one); all with cardinality. |
+| State machine | ✅ | Draft → UnderReview → Approved → Released; Rejected and Cancelled terminal states. Schema defined in `schemas/change_management.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §8.3.6 requires documented engineering change control; this entity is the data record for that requirement. No Layer-1 data standard (STEP AP238, MTConnect, X12 EDI) defines an ECN entity. |
+| Composition rule | ✅ | Lifecycle entity: authorization record for a change; does not model cascade logic (revision creation, routing versioning) — those are production system operations the ECN authorizes. |
+| Canonical framing | ✅ | AS9100 / aerospace CM terms. |
 
 ### export_classification
 
@@ -385,6 +452,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Container of Form 1/2/3 with explicit containment. |
 | Canonical framing | ✅ | AS9102 terms. |
 
+### fixture_use
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | operation_id, fixture_part_id, description, required, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `uses_fixture → part` (many-to-one, part_kind = fixture constraint); all with cardinality. |
+| State machine | ⬜ | Join table — not lifecycle-bearing. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a fixture-to-operation join entity. |
+| Composition rule | ✅ | Join table: links routing operation to fixture part (part_kind = fixture); required flag distinguishes mandatory from alternative fixturing. |
+| Canonical framing | ✅ | Own terms. |
+
+### gauge_definition
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | name, gauge_type, manufacturer, manufacturer_model, measurement_range, calibration_interval_days, notes; all fields specified. |
+| Relationships typed | 🟡 | No relationships key defined — tool_gauge instances (schemas/inspection.yaml) do not yet carry a gauge_definition_id FK. Relationship to tool_gauge is currently implicit (by name and type). To green: add gauge_definition_id FK to tool_gauge and define has_instances (one-to-many → tool_gauge). |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | MTConnect CuttingTool asset schema covers tool identity on connected machines; ISO 13399 covers cutting tool representation; neither defines a gauge catalog type entity. |
+| Composition rule | ✅ | Catalog entity: abstract gauge type specification (manufacturer, model, measurement range, default calibration interval). Physical calibrated instruments are tool_gauge records in schemas/inspection.yaml. |
+| Canonical framing | ✅ | Own terms. |
+
 ### heat_number
 
 | Dimension | Status | Note |
@@ -398,6 +491,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Validated string attribute on `material_lot` per decision 1.7. Not a first-class entity. |
 | Canonical framing | ✅ | Mill industry terms. |
 
+### holder_definition
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | manufacturer, manufacturer_part_number, description, holder_style, taper_standard, collet_series, bore_diameter_in, gauge_length_in, notes; all fields specified. |
+| Relationships typed | ✅ | `used_in_assemblies → tool_assembly_definition` (one-to-many); typed with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing. Physical holders are part entities (part_kind: fixture); holder_definition is the spec they conform to. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | ISO 13399 covers holder interface geometry; taper_standard enum values (CAT40, BT40, HSK63A, etc.) align with ISO 13399 / applicable ANSI/ASME standards for spindle interfaces. No formal field-level mapping. |
+| Composition rule | ✅ | Catalog entity: abstract holder type specification; not a physical item. Physical holders tracked as part entities (part_kind: fixture) via tool_room_allocation. |
+| Canonical framing | ✅ | Own terms. |
+
+### insert_installation_record
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/assembly_hardware.yaml` (Phase 2) |
+| Attributes complete | ✅ | assembly_operation_id, job_id, part_id, serial_id, insert_part_id, insert_quantity, hole_designation, installation_torque_inlb, tang_breakoff_required, tang_broken_off, installed_by_id, installed_date, inspected_by_id, result [Pass/Fail/Rework], notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → assembly_operation` (many-to-one), `for_job → job` (many-to-one), `for_part → part` (many-to-one), `for_serial → serial_number` (many-to-one), `uses_insert → part` (many-to-one, part_kind = insert), `installed_by → user` (many-to-one), `inspected_by → user` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Immutable execution record — not lifecycle-bearing; result field gates acceptance, no state machine. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §8.5.1 requires controlled conditions for special processes; AS9102 Form 1 requires part accountability. No standard defines an insert installation record entity. |
+| Composition rule | ✅ | Immutable execution record: immutable after inspector sign-off; rework creates a new record. Per-operation installation evidence for helicoils, keenserts, nutplates. |
+| Canonical framing | ✅ | Own terms. |
+
 ### inspection_event
 
 | Dimension | Status | Note |
@@ -410,6 +529,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | QIF Plan/Results UUIDs partially mapped — inspection_event provides manufacturer-layer envelope around QIF result bundles; QIF module cross-reference not complete. |
 | Composition rule | ✅ | Resolved: UUID envelope pattern (not supertype of pmi_event); lightweight session header with FK arrays to child records; does not replicate measurement data. (Phase 3.4) |
 | Canonical framing | ✅ | Own terms. |
+
+### inspection_plan
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | part_id, nre_package_id, revision, plan_type [FAI/InProcess/Receiving/Final], file_reference, qif_plan_reference, notes; all fields specified. |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `in_nre_package → nre_package` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing; currency tracked via nre_package status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | QIF covers inspection plans and measurement results (qif_plan_reference FK); AS9102 Rev C FAI distinguished by plan_type = FAI. No standard defines the inspection_plan as a data entity separate from the plan file. |
+| Composition rule | ✅ | Catalog entity: method-agnostic governance document specifying which characteristics to check and in what order; distinct from cmm_program (machine-executable code). |
+| Canonical framing | ✅ | Own terms; QIF plan concepts partially mapped via qif_plan_reference FK. |
 
 ### inventory_location
 
@@ -606,6 +738,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | First-class entity per Decision 1.7; extracted from embedded array in approved_supplier_list_entry; schema Phase 2.E. |
 | Canonical framing | ✅ | Nadcap terms. |
 
+### nc_program
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | operation_id, work_center_id, nre_package_id, program_number, revision, cam_file_id, file_reference, status, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `at_work_center → work_center` (many-to-one), `in_nre_package → nre_package` (many-to-one), `from_cam_file → cam_file` (many-to-one), `has_prove_out_records → prove_out_record` (one-to-many); all with cardinality. |
+| State machine | ✅ | Draft → Proven (prove_out_record Pass) → Released → Obsolete; Proven requires prove_out_record with first_piece_result = Pass; Released requires engineering/quality approval. Schema defined in `schemas/process_engineering.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | STEP AP238 defines CNC process plan structure; no Layer-1 standard defines the NC program file entity or its prove-out lifecycle. MTConnect WorkOrder OperationId links execution context but not program identity. |
+| Composition rule | ✅ | Lifecycle entity: machine-specific CNC program for one operation at one work center; natural key (operation_id, work_center_id); machine flex without routing change modeled as multiple nc_program records. |
+| Canonical framing | ✅ | Own terms. |
+
 ### nonconformance_report
 
 | Dimension | Status | Note |
@@ -618,6 +763,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | AS9100 nonconformance requirements cited; QIF explicitly gaps NCR. |
 | Composition rule | ✅ | Container of MRB fields, rework ref, corrective action. |
 | Canonical framing | ✅ | AS9100 terms. |
+
+### nre_package
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | part_id, part_specification_id (immutable lock), routing_id (immutable lock), status, approved_by_id, approved_date, notes; all fields specified. |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `for_specification → part_specification` (many-to-one), `for_routing → routing` (many-to-one), `approved_by → user` (many-to-one), `contains_nc_programs → nc_program` (one-to-many), `contains_cam_files → cam_file` (one-to-many), `contains_setup_sheets → setup_sheet` (one-to-many), `contains_cmm_programs → cmm_program` (one-to-many), `contains_inspection_plans → inspection_plan` (one-to-many), `contains_tooling_lists → tooling_list` (one-to-many); all with cardinality. |
+| State machine | ✅ | Draft → InReview → Approved → Superseded; part_specification_id and routing_id are immutable after creation — a change to either requires a new package (prior → Superseded). Schema defined in `schemas/process_engineering.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | STEP AP238 defines CNC process plan structure; QIF covers inspection plans; neither defines an NRE package as a revision-locking organizing entity. Pure Layer-2 envelope concept. |
+| Composition rule | ✅ | Envelope: revision-lock container binding part_specification_id and routing_id immutably; a change to either requires a new package. The single reference that makes currency of all child documents checkable by query. |
+| Canonical framing | ✅ | Own terms. |
 
 ### operation
 
@@ -632,6 +790,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Routing template entity; distinct from `work_order` (execution instance) and `assembly_operation` (subtype); schema Phase 2.C. |
 | Canonical framing | ✅ | Canonical name `operation`; `work_order` is the execution instance. Dual-name confusion resolved Phase 2.C. |
 
+### operator_qualification
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/operator_qualification.yaml` (Phase 2) |
+| Attributes complete | ✅ | operator_id, qualification_type [Process/OperationCode/Equipment/Inspection], process_specification_id, operation_code, work_center_id, training_record_reference, qualified_date, expiry_date, qualified_by_id, status, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operator → user` (many-to-one), `for_process → process_specification` (many-to-one), `at_work_center → work_center` (many-to-one), `certified_by → user` (many-to-one); all with cardinality. |
+| State machine | ✅ | Active → Expired (expiry_date reached) / Suspended / Revoked; Expired can transition back to Active on renewal; Revoked is terminal. Schema defined in `schemas/operator_qualification.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §7.2 (personnel competency) and §8.5.1 (controlled conditions for special processes) cited in schema; neither standard defines a data entity for individual operator qualification records. |
+| Composition rule | ✅ | Lifecycle entity: records that a specific operator is qualified for a specific process, operation code, or equipment class; qualification_type discriminator with three nullable FK specializations. |
+| Canonical framing | ✅ | Own terms; distinct from nadcap_certification (facility-level accreditation) — tracks individual operator currency. |
+
 ### outside_process_operation
 
 | Dimension | Status | Note |
@@ -643,6 +814,45 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Cross-ref integrity | ✅ | outside-processing, Archetype B, domain-map §3. Not explicitly in UUID table as own row. |
 | Standards provenance | ✅ | Explicit manufacturer-layer gap fill for STEP AP238 + X12; documented with MTConnect timeline gap annotation. |
 | Composition rule | ✅ | Hybrid entity (routing op + PO + cert collection) explicitly stated. |
+| Canonical framing | ✅ | Own terms. |
+
+### packaging_item
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/packaging.yaml` (Phase 2) |
+| Attributes complete | ✅ | packing_record_id, item_type [Bag/Box/DesiccantUnit/HumidityIndicator/VCIBag/ESDShielding/Label/Foam/CustomInsert/Other], part_id, description, quantity, lot_or_batch, notes; all fields specified. |
+| Relationships typed | ✅ | `in_record → packing_record` (many-to-one), `for_part → part` (many-to-one, part_kind = packaging_insert when item_type = CustomInsert); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; line item within an immutable packing_record. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | MIL-STD-2073 preservation levels inform item_type enum; MIL-D-3464 (desiccant), MIL-PRF-22191 (moisture barrier bag) referenced in schema. No standard defines packaging_item as a data entity. |
+| Composition rule | ✅ | First-class entity (not nested array on packing_record) per Decision 2.4 — supports independent lot traceability, FK to manufactured insert parts, and queryability by material lot. |
+| Canonical framing | ✅ | Own terms. |
+
+### packaging_specification
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/packaging.yaml` (Phase 2) |
+| Attributes complete | ✅ | subject_id/subject_type (polymorphic), revision, preservation_level [A/B/C/None], moisture_barrier_required, esd_protection_required, desiccant_required, humidity_indicator_required, max_pieces_per_bag, max_pieces_per_box, labeling_standard, special_handling_notes, customer_packaging_spec_ref, packaging_insert_part_id, approved_by_id, approved_date, notes; all fields specified. |
+| Relationships typed | ✅ | `for_part → part` (many-to-one), `for_assembly → assembly` (many-to-one), `uses_insert → part` (many-to-one, part_kind = packaging_insert), `approved_by → user` (many-to-one), `packing_records → packing_record` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing; revision field tracks version history. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | MIL-STD-2073 preservation levels (A/B/C) mapped to preservation_level enum; AS9100 §8.5.4 (preservation during packaging). No standard defines packaging_specification as a data entity. |
+| Composition rule | ✅ | Catalog entity: governing specification per part+revision; polymorphic subject FK (Decision 2.2 follows Decision 1.9 pattern). |
+| Canonical framing | ✅ | MIL-STD-2073 / AS9100 terms. |
+
+### packing_record
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/packaging.yaml` (Phase 2) |
+| Attributes complete | ✅ | shipment_id, packaging_specification_id, subject_id/subject_type, serial_id, lot_id, quantity_packed, packed_by_id, packed_date, inspected_by_id, inspection_date, result [Pass/Fail/Rework], notes; all fields specified. |
+| Relationships typed | ✅ | `for_shipment → shipment` (many-to-one), `governed_by → packaging_specification` (many-to-one), `for_part → part` (many-to-one), `for_assembly → assembly` (many-to-one), `for_serial → serial_number` (many-to-one), `for_lot → material_lot` (many-to-one), `packed_by → user` (many-to-one), `inspected_by → user` (many-to-one), `has_items → packaging_item` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Immutable execution record — not lifecycle-bearing; result field gates acceptance. Immutable after inspector sign-off per Decision 2.3; rework creates a new record. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §8.5.4 (preservation during packaging); X12 856 (ASN) covers shipment logistics but not packaging execution evidence. Bridges preservation requirement to shipment record. |
+| Composition rule | ✅ | Immutable execution record: packaging execution evidence per shipment; links to shipment (not job directly — job traceability via shipment.job_id per Decision 2.5). |
 | Canonical framing | ✅ | Own terms. |
 
 ### part
@@ -697,6 +907,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Alias of `certification_document` (cert_type: PMI_Report) per decision 1.6; discriminator in `schemas/certification_document.yaml`. |
 | Canonical framing | ✅ | Own terms. |
 
+### press_fit_record
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/assembly_hardware.yaml` (Phase 2) |
+| Attributes complete | ✅ | assembly_operation_id, job_id, part_id, serial_id, inserted_part_id, insert_quantity, hole_designation, press_force_max_lbf, press_displacement_in, force_within_spec, installed_by_id, installed_date, inspected_by_id, result [Pass/Fail/Rework], notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → assembly_operation` (many-to-one), `for_job → job` (many-to-one), `for_part → part` (many-to-one), `for_serial → serial_number` (many-to-one), `inserts_part → part` (many-to-one), `installed_by → user` (many-to-one), `inspected_by → user` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Immutable execution record — not lifecycle-bearing; result field gates acceptance. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | AS9100 §8.5.1 (controlled conditions for special processes); press force is a critical quality characteristic. No standard defines a press-fit execution record entity. |
+| Composition rule | ✅ | Immutable execution record: press force and displacement evidence for interference-fit components; immutable after inspector sign-off; rework creates a new record. |
+| Canonical framing | ✅ | Own terms. |
+
+### print_file
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | nre_package_id, part_specification_id, file_reference, revision, distribution_statement [Unlimited/Export_Controlled_EAR/ITAR_Controlled/CUI/FOUO/Proprietary], notes; all fields specified. |
+| Relationships typed | ✅ | `in_nre_package → nre_package` (many-to-one), `for_specification → part_specification` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing; currency tracked via nre_package status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | ITAR/CUI distribution statements applied via distribution_statement enum; MIL-STD-130 label standard referenced. No standard defines the controlled drawing copy as a data entity. |
+| Composition rule | ✅ | Catalog entity: controlled snapshot of the drawing PDF bound to the nre_package approval state; distinct from part_specification.pdf_file_ref (the master drawing record). |
+| Canonical framing | ✅ | Own terms. |
+
 ### process_certification
 
 | Dimension | Status | Note |
@@ -735,6 +971,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | ✅ | Extensive AMS 2xxx reference tables (heat treat, chem process, NDT, plating). |
 | Composition rule | ✅ | Container of conditions[] and documentation_required[]. |
 | Canonical framing | ✅ | AMS/Nadcap terms. |
+
+### prove_out_record
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | nc_program_id, work_center_id, operator_id, prove_out_date, first_piece_result [Pass/Fail/Conditional], approved_by_id, approved_date, file_reference, notes; all fields specified. |
+| Relationships typed | ✅ | `for_nc_program → nc_program` (many-to-one), `at_work_center → work_center` (many-to-one), `by_operator → user` (many-to-one), `approved_by → user` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Immutable execution record — not lifecycle-bearing; first_piece_result drives nc_program status transition (Proven → Released requires Pass). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a prove-out record entity. |
+| Composition rule | ✅ | Immutable execution record: evidence that an NC program was proven on a physical machine; never edited — a rework cycle produces a second record. Engineering/quality sign-off required before nc_program can advance Proven → Released. |
+| Canonical framing | ✅ | Own terms. |
 
 ### purchase_order
 
@@ -853,6 +1102,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Primitive unit produced within job; contained-by job relationship formalized in schema Phase 2.C. |
 | Canonical framing | ✅ | Industry terms. |
 
+### setup_sheet
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | operation_id, work_center_id, nre_package_id, revision, file_reference, fixture_part_id, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `at_work_center → work_center` (many-to-one), `in_nre_package → nre_package` (many-to-one), `shows_fixture → part` (many-to-one, part_kind = fixture); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; currency tracked via nre_package status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a setup sheet entity. |
+| Composition rule | ✅ | Simple record: operator setup instruction for one operation at one work center; work-center-specific because machine coordinate systems and fixturing differ. |
+| Canonical framing | ✅ | Own terms. |
+
 ### shelf_life_certification
 
 | Dimension | Status | Note |
@@ -944,6 +1206,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Archetype display alias; no distinct entity; canonical is `approved_supplier_list_entry` Phase 2.E. |
 | Canonical framing | ✅ | Alias of `approved_supplier_list_entry` per decision 1.3; rename cascade complete Phase 2.E. |
 
+### supplier_qualification_event
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/supplier_qualification_event.yaml` (Phase 2.E; renamed from `vendor_qualification_event` per decision 1.3) |
+| Attributes complete | ✅ | supplier_id, event_type enum, date, performed_by, description, documents_reviewed, outcome, next_review; in schema. |
+| Relationships typed | ✅ | `for_supplier` (approved_supplier_list_entry), `performed_by` (user) typed with cardinality in schema. |
+| State machine | ⬜ | Event record, not lifecycle-bearing itself (outcomes drive approved_supplier_list_entry transitions). |
+| Cross-ref integrity | 🟡 | supplier-approval, supplier_qualification_event.yaml. Not in UUID table. |
+| Standards provenance | ⬜ | Pure Layer-2. |
+| Composition rule | ✅ | Primitive event log entry; schema Phase 2.E. |
+| Canonical framing | ✅ | Canonical name `supplier_qualification_event` per decision 1.3; rename cascade complete Phase 2.E. |
+
+### tool_assembly_definition
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | cutter_definition_id, holder_definition_id, description, nominal_stickout_in, stickout_tolerance_in, notes; all fields specified. |
+| Relationships typed | ✅ | `uses_cutter → cutter_definition` (many-to-one), `uses_holder → holder_definition` (many-to-one), `has_presets → tool_preset` (one-to-many), `pocket_requirements → tool_pocket_requirement` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Catalog entity — not lifecycle-bearing. Physical measurement events are tool_preset records. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | ISO 13399 covers cutting tool representation for catalog interchange; STEP AP238 defines machining operations with tool references. No standard defines the assembled tool spec as a data entity. |
+| Composition rule | ✅ | Catalog entity: abstract specification for cutter + holder + nominal stickout combination. The SPEC (abstract); tool_preset is the corresponding physical measurement event. Referenced by tooling_list_line and tool_pocket_requirement. |
+| Canonical framing | ✅ | Own terms. |
+
 ### tool_gauge
 
 | Dimension | Status | Note |
@@ -956,6 +1244,110 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | ✅ | MTConnect CuttingTool asset (mtconnect_tool_asset_id FK), QIF Resources module; both structurally mapped in schema. |
 | Composition rule | ✅ | Resolved: separate entity from work_center — tool_gauge is a precision measurement instrument, not a production machine. Lifecycle carrier for calibration_record evidence. (Phase 3.4) |
 | Canonical framing | ✅ | MTConnect/QIF terms. |
+
+### tool_life_record
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | cutter_definition_id, tool_assembly_definition_id, job_id, work_order_id, parts_run, cumulative_parts_run, tool_change_required, notes; all fields specified. |
+| Relationships typed | ✅ | `for_cutter → cutter_definition` (many-to-one), `for_assembly → tool_assembly_definition` (many-to-one), `for_job → job` (many-to-one), `for_work_order → work_order` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; execution log record per job/work order run. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a cutter life record entity. |
+| Composition rule | ✅ | Simple record: cumulative usage tracking for a cutter type per job/work order run; primary lifecycle mechanism for non-serialized consumable cutters. Builds usage history over time for tool life analysis. |
+| Canonical framing | ✅ | Own terms. |
+
+### tool_maintenance_event
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | asset_type [Fixture/Holder/Gauge/Cutter], asset_part_id, tool_gauge_id, event_type [Sharpen/Clean/Repair/Inspect/Recertify/Retire], performed_by_id, event_date, description, result [Pass/Fail/RetiredAfterService], notes; all fields specified. |
+| Relationships typed | ✅ | `for_fixture → part` (many-to-one), `for_gauge → tool_gauge` (many-to-one), `performed_by → user` (many-to-one); asset_type discriminator determines which FK is populated; all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; execution log record per service event. result field drives asset status (RetiredAfterService → asset retired). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tool maintenance event entity. |
+| Composition rule | ✅ | Simple record: discriminated service event covering two asset classes (Fixture/Holder via asset_part_id FK; Gauge via tool_gauge_id FK) with asset_type enum discriminator. |
+| Canonical framing | ✅ | Own terms. |
+
+### tool_pocket_assignment
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | work_order_id, pocket_number, tool_preset_id, loaded_by_id, loaded_date, removed_date, notes; all fields specified. |
+| Relationships typed | ✅ | `for_work_order → work_order` (many-to-one), `uses_preset → tool_preset` (many-to-one), `loaded_by → user` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; execution record per pocket per work order. removed_date null while still loaded. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tool pocket assignment entity. |
+| Composition rule | ✅ | Simple record: the ACTUAL assignment for a specific work_order execution; bridges tool_pocket_requirement (SPEC: what the nc_program needs) to tool_preset (physical measured assembly loaded). |
+| Canonical framing | ✅ | Own terms. |
+
+### tool_pocket_requirement
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | nc_program_id, pocket_number, tool_assembly_definition_id, description, notes; all fields specified. |
+| Relationships typed | ✅ | `for_nc_program → nc_program` (many-to-one), `requires_assembly → tool_assembly_definition` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; static spec record per pocket per nc_program. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tool pocket requirement entity. |
+| Composition rule | ✅ | Simple record: the SPEC encoded in an NC program; pocket number → tool_assembly_definition as encoded in the nc_program. One record per pocket per nc_program. |
+| Canonical framing | ✅ | Own terms. |
+
+### tool_preset
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | tool_assembly_definition_id, holder_part_id, presetter_id (FK → tool_gauge), measured_by_id, measured_date, measured_length_in, measured_diameter_in, stickout_actual_in, within_tolerance, notes; all fields specified. |
+| Relationships typed | ✅ | `for_assembly → tool_assembly_definition` (many-to-one), `for_holder → part` (many-to-one, part_kind = fixture), `measured_with → tool_gauge` (many-to-one), `measured_by → user` (many-to-one), `used_in_assignments → tool_pocket_assignment` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; immutable measurement record per presetter event; old records preserved as historical evidence; new tool_preset created when cutter is changed or assembly is remeasured. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | presetter_id FK → tool_gauge provides calibration traceability for measured offsets; MTConnect CuttingTool asset schema covers tool identity on connected machines but not presetter measurement records. |
+| Composition rule | ✅ | Simple record: measured offset record for a specific physical tool assembly (serialized holder + cutter) at a specific date; one record per presetter measurement event. |
+| Canonical framing | ✅ | Own terms. |
+
+### tool_room_allocation
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
+| Attributes complete | ✅ | asset_part_id (FK → part, part_kind = fixture), job_id, operation_id, checked_out_by_id, checked_out_date, expected_return_date, returned_date, status, notes; all fields specified. |
+| Relationships typed | ✅ | `for_asset → part` (many-to-one, part_kind = fixture constraint), `for_job → job` (many-to-one), `for_operation → operation` (many-to-one), `checked_out_by → user` (many-to-one); all with cardinality. |
+| State machine | ✅ | CheckedOut → Returned; CheckedOut → Lost / Damaged; terminal: Returned, Lost, Damaged. A part may have multiple sequential allocation records over its lifetime; only one should be CheckedOut at a time. Schema defined in `schemas/tool_room.yaml` (Phase 2). |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tool room checkout/allocation entity. |
+| Composition rule | ✅ | Lifecycle entity: checkout record for a physical fixture or holder; tracks custody from crib to job and back; physical assets are part entities (part_kind: fixture) — no separate instance entity. |
+| Canonical framing | ✅ | Own terms. |
+
+### tooling_list
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | operation_id, nc_program_id, nre_package_id, revision, notes; all fields specified. |
+| Relationships typed | ✅ | `for_operation → operation` (many-to-one), `for_nc_program → nc_program` (many-to-one), `in_nre_package → nre_package` (many-to-one), `has_lines → tooling_list_line` (one-to-many); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; currency tracked via nre_package status. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tooling list entity. |
+| Composition rule | ✅ | Simple record: complete list of tools required to run a specific NC program at a specific work center; tied to nc_program (not just operation) because tool selection is machine-specific. Authoritative reference for pre-job tool staging. |
+| Canonical framing | ✅ | Own terms. |
+
+### tooling_list_line
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/process_engineering.yaml` (Phase 2) |
+| Attributes complete | ✅ | tooling_list_id, pocket_number, tool_assembly_definition_id, description, sequence_position, notes; all fields specified. |
+| Relationships typed | ✅ | `in_tooling_list → tooling_list` (many-to-one), `requires_tool_assembly → tool_assembly_definition` (many-to-one); all with cardinality. |
+| State machine | ⬜ | Not lifecycle-bearing; line item within a tooling_list. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard defines a tooling list line entity. |
+| Composition rule | ✅ | Simple record: one line in a tooling list; pocket number → tool_assembly_definition; pocket numbers correspond directly to T-codes in the NC program. |
+| Canonical framing | ✅ | Own terms. |
 
 ### torque_readings_record
 
@@ -1035,19 +1427,6 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | 🟡 | Reference enum; child of export_classification per archetypes. |
 | Canonical framing | ✅ | ITAR terms. |
 
-### supplier_qualification_event
-
-| Dimension | Status | Note |
-|---|---|---|
-| Schema defined | ✅ | `schemas/supplier_qualification_event.yaml` (Phase 2.E; renamed from `vendor_qualification_event` per decision 1.3) |
-| Attributes complete | ✅ | supplier_id, event_type enum, date, performed_by, description, documents_reviewed, outcome, next_review; in schema. |
-| Relationships typed | ✅ | `for_supplier` (approved_supplier_list_entry), `performed_by` (user) typed with cardinality in schema. |
-| State machine | ⬜ | Event record, not lifecycle-bearing itself (outcomes drive approved_supplier_list_entry transitions). |
-| Cross-ref integrity | 🟡 | supplier-approval, supplier_qualification_event.yaml. Not in UUID table. |
-| Standards provenance | ⬜ | Pure Layer-2. |
-| Composition rule | ✅ | Primitive event log entry; schema Phase 2.E. |
-| Canonical framing | ✅ | Canonical name `supplier_qualification_event` per decision 1.3; rename cascade complete Phase 2.E. |
-
 ### witness_inspection
 
 | Dimension | Status | Note |
@@ -1104,7 +1483,7 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 
 ## Per-Column Tally
 
-Counts across 82 entities (Phase 3.4 update). Totals must equal 82 per column.
+Counts across 82 entities (Phase 3.4 update). **Stale — pending recount after Phase 2 addition of 35 entities.** Totals below reflect the pre-Phase-2 state; a precise recount is deferred to the next pass.
 
 | Dimension | ✅ | 🟡 | 🔴 | ⬜ |
 |---|---:|---:|---:|---:|
