@@ -1,0 +1,483 @@
+# schemas/corrective_action.yaml
+#
+# QMS tools cluster: standalone CAPA, internal audit, lessons learned, and operational
+# risk assessment entities.
+#
+# Layer-1 coverage: None. These are pure manufacturer-layer QMS entities. AS9100D
+#   requires them; no Layer-1 standard (STEP/MTConnect/QIF/X12) defines their schemas.
+#
+# AS9100D clauses addressed:
+#   §8.1.1  Operational planning and control — risk and opportunity actions → operational_risk_assessment
+#   §9.2    Internal audit → audit_plan, audit_finding
+#   §10.2   Nonconformity and corrective action → corrective_action
+#   §10.3   Continual improvement → lessons_learned
+#
+# Design note — composition-test framing:
+#   These entities are QMS compliance-trail entities. They are not composition entities —
+#   a part decomposition walk does not pass through them. Their role in the ontology is to
+#   close the AS9100D alignment gap identified in the April 2026 coherence pass: a
+#   conforming QMS requires standalone corrective action records (not just embedded booleans
+#   in NCR), documented internal audit evidence, and captured lessons learned for continual
+#   improvement. The entities exist at the quality-system layer, not the manufacturing-execution
+#   layer. They reference composition entities (job, NCR, FAI, customer_complaint) but are
+#   not themselves nodes in any composition walk.
+#
+# Prose source: extensions/as9100-qms-layer.md
+# Domain: reference/domain-map.md — Quality §4 (QMS Compliance-Trail Extension)
+#
+# Entities: corrective_action, audit_plan, audit_finding, lessons_learned,
+#           operational_risk_assessment
+
+entities:
+
+  corrective_action:
+    description: >
+      Standalone AS9100D §10.2 Corrective Action / Preventive Action (CAPA) record.
+      Replaces the embedded corrective_action boolean fields in nonconformance_report with
+      a first-class entity that carries root cause analysis, action tracking, and
+      effectiveness verification as a full lifecycle. Initiated from an NCR, customer
+      complaint, audit finding, supplier issue, or internal observation. The initiating
+      source is captured via polymorphic FK (initiating_source_type + initiating_source_id).
+      Terminal state is Closed (effectiveness verified) or Cancelled (superseded or withdrawn).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when CAPA is opened
+      ca_number:
+        type: string
+        required: true
+        description: Sequential CAPA reference number (e.g., "CAPA-2026-0012")
+      initiated_date:
+        type: date
+        required: true
+      initiating_source_type:
+        type: enum
+        required: true
+        values: [NCR, Customer_Complaint, Audit_Finding, Supplier_Issue, Internal_Observation, Lessons_Learned]
+        description: Type of record that initiated this CAPA (discriminator for initiating_source_id)
+      initiating_source_id:
+        type: uuid
+        required: false
+        description: FK to the initiating record — nonconformance_report.id, customer_complaint.id, audit_finding.id, etc. (polymorphic per initiating_source_type)
+      owner_id:
+        type: uuid
+        required: true
+        description: FK → user.id — person responsible for driving the CAPA to closure
+      root_cause_analysis_method:
+        type: enum
+        required: false
+        values: [Eight_D, Five_Why, Fishbone_Ishikawa, Fault_Tree, Is_Is_Not, Other]
+      root_cause_description:
+        type: string
+        required: false
+        description: Root cause as determined by analysis; required before action_description can be finalized
+      action_description:
+        type: string
+        required: false
+        description: Corrective actions taken or planned to eliminate the root cause
+      action_due_date:
+        type: date
+        required: false
+        description: Target date for action completion
+      action_completed_date:
+        type: date
+        required: false
+      effectiveness_criteria:
+        type: string
+        required: false
+        description: Measurable criteria that will confirm the corrective action was effective
+      effectiveness_review_date:
+        type: date
+        required: false
+        description: Date the effectiveness review is scheduled or was completed
+      effectiveness_verified:
+        type: boolean
+        required: false
+        description: Whether effectiveness review confirmed the root cause has been eliminated
+      preventive_actions:
+        type: string
+        required: false
+        description: Preventive actions taken to avoid recurrence in related areas not affected by the root cause
+      related_lessons_learned_id:
+        type: uuid
+        required: false
+        description: FK → lessons_learned.id — if this CAPA produced a lessons-learned entry
+      closed_date:
+        type: date
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Open, Root_Cause_Analysis, Action_In_Progress, Effectiveness_Review, Closed, Cancelled]
+
+    state_machine:
+      description: >
+        CAPA lifecycle from initiation through effectiveness verification. AS9100D §10.2
+        requires documented actions and verification of effectiveness. Terminal states:
+        Closed (effectiveness confirmed), Cancelled (CAPA withdrawn or superseded).
+      initial_state: Open
+      terminal_states: [Closed, Cancelled]
+      states:
+        Open:
+          description: CAPA opened; initiating source documented; root cause analysis not yet complete
+        Root_Cause_Analysis:
+          description: Root cause analysis in progress; action owner assigned
+        Action_In_Progress:
+          description: Root cause identified; corrective actions being implemented
+        Effectiveness_Review:
+          description: Actions complete; effectiveness review scheduled or in progress
+        Closed:
+          description: >
+            Effectiveness verified against criteria; root cause eliminated or acceptably mitigated.
+            Lessons learned entry linked if applicable. Terminal state.
+        Cancelled:
+          description: CAPA withdrawn — superseded by a broader CAPA, determined not systemic, or initiating NCR scrapped. Terminal state.
+      transitions:
+        - from: Open
+          to: Root_Cause_Analysis
+          trigger: Owner assigned; investigation authorized
+        - from: Root_Cause_Analysis
+          to: Action_In_Progress
+          trigger: Root cause documented; corrective actions defined and approved
+          guard: root_cause_description is non-null; action_description is non-null
+        - from: Action_In_Progress
+          to: Effectiveness_Review
+          trigger: Corrective actions implemented; effectiveness review scheduled
+          guard: action_completed_date is non-null; effectiveness_criteria defined
+        - from: Effectiveness_Review
+          to: Closed
+          trigger: Effectiveness review confirms root cause eliminated
+          guard: effectiveness_verified = true; effectiveness_review_date is non-null
+        - from: Effectiveness_Review
+          to: Action_In_Progress
+          trigger: Effectiveness review finds actions insufficient; additional actions required
+        - from: Open
+          to: Cancelled
+          trigger: CAPA determined unnecessary or superseded
+        - from: Root_Cause_Analysis
+          to: Cancelled
+          trigger: CAPA superseded or withdrawn
+        - from: Action_In_Progress
+          to: Cancelled
+          trigger: CAPA superseded or withdrawn
+
+    relationships:
+      owned_by:
+        target: user
+        cardinality: many-to-one
+      produced_lessons_learned:
+        target: lessons_learned
+        cardinality: many-to-one
+        nullable: true
+
+  audit_plan:
+    description: >
+      AS9100D §9.2 internal audit schedule record. Captures the planned scope, audit team,
+      criteria, and schedule for a single internal audit cycle. Multiple audit_finding records
+      reference this plan. AS9100D requires audits at planned intervals and retains the audit
+      program as documented information. Status tracks the audit cycle from planning through
+      completion. One audit_plan per audit event; a program covering multiple audits produces
+      multiple audit_plan records.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when audit is planned
+      audit_number:
+        type: string
+        required: true
+        description: Sequential audit reference number (e.g., "AUDIT-2026-003")
+      audit_year:
+        type: integer
+        required: true
+        description: Calendar year of the audit
+      audit_type:
+        type: enum
+        required: true
+        values: [AS9100_Full_System, Clause_Specific, Process_Based, Surveillance, Customer_Required, Supplier_Audit]
+      planned_date:
+        type: date
+        required: true
+        description: Scheduled audit start date
+      actual_date:
+        type: date
+        required: false
+        description: Date audit was actually conducted (if different from planned)
+      scope_description:
+        type: string
+        required: true
+        description: Processes, departments, and AS9100D clauses covered by this audit
+      criteria:
+        type: string
+        required: true
+        description: >
+          Audit criteria — the standard(s) or requirements against which the audit is conducted.
+          Typically "AS9100D:2016" plus customer-specific requirements.
+        examples: ["AS9100D:2016", "AS9100D:2016 + customer QA-014"]
+      lead_auditor_id:
+        type: uuid
+        required: true
+        description: FK → user.id — lead auditor (must be independent of the area being audited per §9.2)
+      audit_team_ids:
+        type: array
+        required: false
+        description: FK → user.id[] — additional auditors on the team
+        items:
+          type: uuid
+      finding_count_nonconformity:
+        type: integer
+        required: false
+        description: Number of nonconformity findings issued (populated after audit)
+      finding_count_observation:
+        type: integer
+        required: false
+        description: Number of observations/OFIs issued
+      report_reference:
+        type: string
+        required: false
+        description: File path or document reference for the audit report
+      status:
+        type: enum
+        required: true
+        values: [Planned, In_Progress, Complete, Cancelled]
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      led_by:
+        target: user
+        cardinality: many-to-one
+      produces_findings:
+        target: audit_finding
+        cardinality: one-to-many
+
+  audit_finding:
+    description: >
+      An individual finding from an internal audit — a nonconformity, observation, or
+      opportunity for improvement identified during an audit_plan. One record per finding.
+      Nonconformity findings require a corrective_action (corrective_action_id FK); observations
+      and OFIs may trigger corrective actions at discretion. AS9100D §9.2.2(f) requires
+      results be reported to relevant management; the audit_plan.report_reference covers that.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      audit_plan_id:
+        type: uuid
+        required: true
+        description: FK → audit_plan.id — the audit that produced this finding
+      finding_number:
+        type: string
+        required: true
+        description: Finding number within this audit (e.g., "F-001", "NC-002")
+      finding_type:
+        type: enum
+        required: true
+        values: [Nonconformity, Observation, Opportunity_for_Improvement]
+      severity:
+        type: enum
+        required: false
+        values: [Major, Minor, OFI]
+        description: >
+          Major: absence or total breakdown of a requirement; systemic.
+          Minor: isolated lapse; not systemic.
+          OFI: observation or opportunity — not a nonconformity.
+      clause_reference:
+        type: string
+        required: false
+        description: AS9100D clause(s) where the finding was identified
+        examples: ["AS9100D §8.4.2", "AS9100D §7.1.5.2", "AS9100D §8.3.5"]
+      process_area:
+        type: string
+        required: false
+        description: Operational area or process where the finding was observed
+        examples: ["Receiving Inspection", "Supplier Management", "Document Control"]
+      description:
+        type: string
+        required: true
+        description: Objective evidence and detailed description of the finding
+      objective_evidence:
+        type: string
+        required: false
+        description: Specific records, observations, or interviews that constitute the objective evidence
+      corrective_action_id:
+        type: uuid
+        required: false
+        description: FK → corrective_action.id — required for Nonconformity findings
+      due_date:
+        type: date
+        required: false
+        description: Date by which corrective action response is due
+      status:
+        type: enum
+        required: true
+        values: [Open, Corrective_Action_Assigned, Verification_Pending, Closed]
+
+    relationships:
+      from_audit:
+        target: audit_plan
+        cardinality: many-to-one
+      requires_corrective_action:
+        target: corrective_action
+        cardinality: many-to-one
+        nullable: true
+
+  lessons_learned:
+    description: >
+      AS9100D §10.3 continual improvement capture. Records a specific lesson derived from
+      a quality event, project outcome, audit finding, or customer feedback that the
+      organization wants to retain and disseminate for future benefit. The source is
+      captured via polymorphic FK (source_type + source_id). Lessons_learned entries are
+      the mechanism by which corrective action outcomes propagate to future jobs, routings,
+      and quality planning — closing the feedback loop required by §10.3.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      capture_date:
+        type: date
+        required: true
+      source_type:
+        type: enum
+        required: true
+        values: [Audit_Finding, Customer_Complaint, NCR, FAI_Rejection, Corrective_Action, Project_Retrospective, Near_Miss, Other]
+        description: Type of event that produced this lesson (discriminator for source_id)
+      source_id:
+        type: uuid
+        required: false
+        description: FK to the source record (polymorphic per source_type); null when source_type = Project_Retrospective or Other
+      summary:
+        type: string
+        required: true
+        description: One-sentence summary of the lesson
+      detail:
+        type: string
+        required: false
+        description: Full narrative of what happened, what was learned, and what should be done differently
+      applicable_processes:
+        type: array
+        required: false
+        description: Process codes or routing operations where this lesson applies
+        items:
+          type: string
+        examples: [["OP010 - Lathe", "OP020 - Mill"], ["Receiving Inspection", "Supplier Selection"]]
+      applicable_part_families:
+        type: array
+        required: false
+        description: Part families or material types where this lesson applies
+        items:
+          type: string
+        examples: [["Titanium", "PH Stainless"], ["Small Bore", "Thin Wall"]]
+      disseminated_to:
+        type: array
+        required: false
+        description: User IDs or department/role names to whom the lesson was communicated
+        items:
+          type: string
+      dissemination_date:
+        type: date
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Captured, Under_Review, Approved, Disseminated]
+
+    relationships:
+      originated_from_capa:
+        target: corrective_action
+        cardinality: many-to-one
+        nullable: true
+
+  operational_risk_assessment:
+    description: >
+      AS9100D §8.1.1 risk and opportunity identification record for a specific customer PO
+      or production job. Records identified risks, their likelihood and consequence ratings,
+      mitigation plans, and residual risk acceptance. One assessment per subject (PO or job).
+      Uses polymorphic FK (subject_type + subject_id) — the same pattern used by
+      key_characteristic, nonconformance_report, and first_article_inspection (Decision 1.9).
+      Operational risk flags on customer_purchase_order (operational_risk_flags[]) feed the
+      initial risk identification for the assessment against that PO.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      subject_type:
+        type: enum
+        required: true
+        values: [customer_purchase_order, job]
+        description: Discriminator for subject_id polymorphic FK
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → customer_purchase_order.id or job.id per subject_type
+      assessment_date:
+        type: date
+        required: true
+      assessed_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — person who performed the risk assessment
+      risk_category:
+        type: enum
+        required: true
+        values: [Technical, Schedule, Quality, Supplier, Regulatory, ITAR, Capacity, Cost]
+      description:
+        type: string
+        required: true
+        description: Description of the risk
+      likelihood:
+        type: enum
+        required: true
+        values: [Low, Medium, High]
+      consequence:
+        type: enum
+        required: true
+        values: [Low, Medium, High]
+      risk_score:
+        type: integer
+        required: false
+        description: Numeric risk score (e.g., 1–9 from likelihood × consequence matrix); computed at assessment time
+      mitigation_plan:
+        type: string
+        required: false
+        description: Actions planned or taken to reduce likelihood or consequence
+      mitigation_owner_id:
+        type: uuid
+        required: false
+        description: FK → user.id — person responsible for executing the mitigation plan
+      mitigation_due_date:
+        type: date
+        required: false
+      residual_risk:
+        type: enum
+        required: false
+        values: [Acceptable, Monitor, Unacceptable]
+        description: Risk level after mitigation is applied; Unacceptable requires escalation
+      opportunity_description:
+        type: string
+        required: false
+        description: Optional: if this assessment identifies an opportunity rather than or in addition to a risk (per §8.1.1 risk AND opportunity framing)
+      status:
+        type: enum
+        required: true
+        values: [Identified, Mitigation_In_Progress, Mitigated, Accepted, Closed]
+
+    relationships:
+      for_purchase_order:
+        target: customer_purchase_order
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = customer_purchase_order
+      for_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = job
+      assessed_by:
+        target: user
+        cardinality: many-to-one

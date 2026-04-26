@@ -36,6 +36,8 @@ The ontology is measured by composition, not by domain polish. Success means: an
 - [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (355 edges; updated 2026-04-24 for Phase 2 + InspectAI entities).
 - [`implementations/`](implementations/) — reference mappings to Carbon, Fulcrum, and a template for future systems.
 - [`reference/carbon-novelty-2026-04.md`](reference/carbon-novelty-2026-04.md) — latest Carbon scan findings.
+- [`docs/department-head-briefing.md`](docs/department-head-briefing.md) — slide-shaped briefing for explaining the four-layer model, business-object audit history, queues, and the new department-head role.
+- [`docs/platform-landscape.md`](docs/platform-landscape.md) — current implementation landscape across `warp-core`, `email-ingest`, `shop-floor-mes`, `quoting`, `ffm-orders`, `inspectai`, and adjacent department systems.
 
 ## Contributing
 
@@ -43,7 +45,7 @@ A new contributor — human or agent — can reach any entity in ≤2 hops from 
 
 ## Status
 
-Active. Phase 2 (12 domains, 117 entities) completed 2026-04-24; InspectAI-derived quality entities added same day. Schema coverage: 106 of 117 entities fully specified; remaining 11 are intentional (external standards not authored here, string/enum type decisions, aliases, removed-from-canon). Machine-readable reference files updated 2026-04-24: `reference/entity-inventory.yaml` (117 entries) and `reference/relationship-graph.yaml` (355 edges). See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
+Active. Phase 2 (12 domains, 117 entities) completed 2026-04-24; InspectAI-derived quality entities added same day. AS9100D QMS layer alignment pass completed 2026-04-26: 9 new entities added (`audit_finding`, `audit_plan`, `contract_review_event`, `corrective_action`, `customer_complaint`, `lessons_learned`, `operational_risk_assessment`, `product_release_authorization`, `requirement_change_notification`), bringing total to 126. Schema coverage: 115 of 126 entities fully specified; remaining 11 are intentional (external standards not authored here, string/enum type decisions, aliases, removed-from-canon). New schemas: `schemas/orders.yaml`, `schemas/corrective_action.yaml`; field additions to `schemas/customer_purchase_order.yaml`, `schemas/quality.yaml`, `schemas/inspection.yaml`, `schemas/approved_supplier_list_entry.yaml`. Prose: `extensions/as9100-qms-layer.md`. Machine-readable reference files updated 2026-04-24: `reference/entity-inventory.yaml` (117 entries) and `reference/relationship-graph.yaml` (355 edges) — pending update to 126 entries and ~395 edges. See [`reference/residual-gaps.md`](reference/residual-gaps.md) for deferred items and architectural decisions.
 
 ## License
 

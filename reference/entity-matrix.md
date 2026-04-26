@@ -1,7 +1,7 @@
 # Entity Matrix — Precision Manufacturing Ontology Coherence Pass
 
-Generated: 2026-04-22 (Task 6); updated Phase 3.2 (2026-04-22), Phase 3.3 (2026-04-22), Phase 3.4 (2026-04-23), Phase 2 (2026-04-24), InspectAI (2026-04-24).
-Sources: `reference/entity-inventory.yaml` (117 entities), `reference/composition-archetypes.md` (required fields per archetype), all files in `extensions/`, all files in `schemas/`, `standards/*.md`, `reference/domain-map.md`, `reference/carbon-os-mapping.md`.
+Generated: 2026-04-22 (Task 6); updated Phase 3.2 (2026-04-22), Phase 3.3 (2026-04-22), Phase 3.4 (2026-04-23), Phase 2 (2026-04-24), InspectAI (2026-04-24), AS9100D QMS layer (2026-04-26).
+Sources: `reference/entity-inventory.yaml` (126 entities), `reference/composition-archetypes.md` (required fields per archetype), all files in `extensions/`, all files in `schemas/`, `standards/*.md`, `reference/domain-map.md`, `reference/carbon-os-mapping.md`.
 
 Glyphs: ✅ green · 🟡 yellow · 🔴 red · ⬜ missing-but-N/A (green-equivalent where the dimension does not apply)
 
@@ -34,7 +34,7 @@ The ontology's strength is narrative and compositional: every archetype walks en
 
 ## Matrix
 
-Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 117 (82 original + 29 Phase 2 additions + 6 InspectAI-derived: `characteristic`, `measurement_result`, `fmea_item`, `control_plan_item`, `spc_result`, `ppap_submission`).
+Entities are listed alphabetically (matching `entity-inventory.yaml` order). Entity count: 126 (117 prior + 9 AS9100D QMS layer: `audit_finding`, `audit_plan`, `contract_review_event`, `corrective_action`, `customer_complaint`, `lessons_learned`, `operational_risk_assessment`, `product_release_authorization`, `requirement_change_notification`).
 
 ---
 
@@ -128,6 +128,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🔴 | STEP AP238 defines routing; no explicit mapping of `assembly_routing` to AP238. |
 | Composition rule | ✅ | Distinct from `routing` per routing.yaml Phase 2.C; assembly-specific container with torque/witness metadata. |
 | Canonical framing | ✅ | Own terms. |
+
+### audit_finding
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/corrective_action.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | finding_type, severity, clause_reference, process_area, description, objective_evidence, corrective_action_id FK, status lifecycle fields. |
+| Relationships typed | ✅ | `from_audit → audit_plan` (many-to-one), `requires_corrective_action → corrective_action` (many-to-one, nullable). |
+| State machine | ⬜ | Status enum present (Open/Corrective_Action_Assigned/Verification_Pending/Closed); not modeled as explicit state graph — lifecycle driven by corrective_action status. |
+| Cross-ref integrity | 🟡 | In schemas/corrective_action.yaml and extensions/as9100-qms-layer.md; not yet in uuid-discipline.md entity table. |
+| Standards provenance | ✅ | AS9100D §9.2.2(d,f) explicitly requires documented findings and corrective action without undue delay. |
+| Composition rule | ✅ | QMS compliance-trail entity; not a composition entity. References audit_plan (parent) and corrective_action (outcome). |
+| Canonical framing | ✅ | Defined on AS9100D terms; finding_type and severity enums aligned to aerospace QMS practice. |
+
+### audit_plan
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/corrective_action.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | audit_type, planned/actual date, scope, criteria, lead_auditor_id, team, finding counts, report_reference, status. |
+| Relationships typed | ✅ | `led_by → user` (many-to-one), `produces_findings → audit_finding` (one-to-many). |
+| State machine | ⬜ | Status enum (Planned/In_Progress/Complete/Cancelled); linear lifecycle not modeled as explicit graph. |
+| Cross-ref integrity | 🟡 | In schemas/corrective_action.yaml and extensions/as9100-qms-layer.md; not yet in uuid-discipline.md entity table. |
+| Standards provenance | ✅ | AS9100D §9.2.1 (audit criteria, scope, methods, frequency); §9.2.2 (results retained as documented information). |
+| Composition rule | ✅ | QMS compliance-trail entity; one plan per audit cycle; produces audit_finding children. |
+| Canonical framing | ✅ | Defined on AS9100D terms. |
 
 ### bom_line
 
@@ -272,6 +298,32 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | One row per controlled characteristic per operation; aggregate set constitutes the AIAG APQP control plan for a part. |
 | Canonical framing | ✅ | AIAG APQP terms. |
 
+### contract_review_event
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/orders.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | customer_po_id, review_date, reviewer_id, review_outcome, capability_confirmed, requirements_clear, flowdown_confirmed, itar_check_complete, conditions_description, notes. All §8.2.3.1 required checks covered. |
+| Relationships typed | ✅ | `reviews_po → customer_purchase_order` (many-to-one), `reviewed_by → user` (many-to-one). Inverse on customer_purchase_order: `has_contract_review`. |
+| State machine | ⬜ | Immutable record; no lifecycle. Terminal at creation. |
+| Cross-ref integrity | 🟡 | In schemas/orders.yaml, extensions/as9100-qms-layer.md, domain-map §6; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §8.2.3.1(a–c); retained documented information per §8.2.3. |
+| Composition rule | ✅ | QMS compliance-trail entity. Pre-acceptance gate for customer_purchase_order; no part decomposition walk traverses it. |
+| Canonical framing | ✅ | Defined on AS9100D §8.2.3.1 terms. |
+
+### corrective_action
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/corrective_action.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | ca_number, initiating_source_type/id (polymorphic), owner_id, root_cause_analysis_method, root_cause_description, action_description, action_due/completed date, effectiveness_criteria, effectiveness_review_date, effectiveness_verified, preventive_actions, related_lessons_learned_id, status. |
+| Relationships typed | ✅ | `owned_by → user` (many-to-one), `produced_lessons_learned → lessons_learned` (many-to-one, nullable). Inverse FKs on NCR and customer_complaint. |
+| State machine | ✅ | Open → Root_Cause_Analysis → Action_In_Progress → Effectiveness_Review → Closed; Cancelled from any pre-terminal state. Terminal: Closed, Cancelled. AS9100D §10.2 lifecycle. |
+| Cross-ref integrity | 🟡 | In schemas/corrective_action.yaml, extensions/as9100-qms-layer.md, domain-map QMS section; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §10.2.1(a–g); §10.2.2 retained documented information. |
+| Composition rule | ✅ | QMS compliance-trail entity. Standalone CAPA replacing embedded NCR fields; polymorphic source FK covers NCR/complaint/audit_finding/internal. |
+| Canonical framing | ✅ | AS9100D §10.2 terms; root_cause_analysis_method enum aligned to aerospace QMS tools (8D, 5Why, Fishbone). |
+
 ### country
 
 | Dimension | Status | Note |
@@ -324,16 +376,29 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Container of `entries[]`. |
 | Canonical framing | ✅ | Own terms. |
 
+### customer_complaint
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/orders.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | complaint_number, customer_id, complaint_date, complaint_type, job_id, shipment_id, serial_ids[], customer_reference, description, ncr_id, corrective_action_id, response_due/sent dates, resolution_summary, closed_date, status. |
+| Relationships typed | ✅ | `received_from → customer` (many-to-one), `concerns_job → job` (many-to-one, nullable), `concerns_shipment → shipment` (many-to-one, nullable), `generates_ncr → nonconformance_report` (many-to-one, nullable), `has_corrective_action → corrective_action` (many-to-one, nullable). |
+| State machine | ⬜ | Status enum (Open/Under_Investigation/Corrective_Action_In_Progress/Resolved/Closed); not modeled as explicit graph. |
+| Cross-ref integrity | 🟡 | In schemas/orders.yaml, extensions/as9100-qms-layer.md, domain-map §6; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §8.2.1(c) customer complaints explicitly required as part of customer communication arrangements. |
+| Composition rule | ✅ | QMS compliance-trail entity. Post-shipment customer feedback distinct from internally-initiated NCR. |
+| Canonical framing | ✅ | Defined on AS9100D §8.2.1 terms. |
+
 ### customer_purchase_order
 
 | Dimension | Status | Note |
 |---|---|---|
-| Schema defined | ✅ | `schemas/customer_purchase_order.yaml` (Phase 2.E) |
-| Attributes complete | ✅ | PO number, date, line_items[], flowdown_clauses[], ITAR marking, contract ref, state machine status; in schema. |
-| Relationships typed | 🟡 | `creates_job`, `cites_quality_clause`, `results_in_sales_order` defined; cardinality in schema. |
-| State machine | ✅ | Full transition graph in `schemas/customer_purchase_order.yaml`: Received → Under_Review → Acknowledged → In_Production → Partially_Shipped → Fully_Shipped → Invoiced → Closed; ITAR guard on Acknowledged; terminal: Closed, Rejected, Cancelled. (Phase 3.3) |
+| Schema defined | ✅ | `schemas/customer_purchase_order.yaml` (Phase 2.E; updated AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | PO number, date, line_items[], flowdown_clauses[], ITAR marking, contract ref, state machine status; special_requirements[], operational_risk_flags[], contract_review_id added 2026-04-26. |
+| Relationships typed | ✅ | `creates_job`, `cites_quality_clause`, `results_in_sales_order`, `has_contract_review`, `has_risk_assessments`, `has_change_notifications`, `has_complaints` defined with cardinality in schema. |
+| State machine | ✅ | Full transition graph in `schemas/customer_purchase_order.yaml`: Received → Under_Review → Acknowledged → In_Production → Partially_Shipped → Fully_Shipped → Invoiced → Closed; ITAR guard + contract_review_id guard on Acknowledged; terminal: Closed, Rejected, Cancelled. (Phase 3.3; guard strengthened 2026-04-26) |
 | Cross-ref integrity | ✅ | Archetypes B/C, quality-flowdowns, ip-boundary, X12 standard, customer_purchase_order.yaml. |
-| Standards provenance | ✅ | X12 850 directly maps. |
+| Standards provenance | ✅ | X12 850 directly maps. AS9100D §8.2.3.1 guard added. |
 | Composition rule | ✅ | Distinct (inbound X12 850) per decision 1.4; schema defined Phase 2.E. |
 | Canonical framing | ✅ | X12 + aerospace PO terms. |
 
@@ -649,6 +714,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Container with flat kit_contents[] JSONB array; immutable once assembly operation begins; complete flag gates operation start. (Phase 3.4) |
 | Canonical framing | ✅ | Own terms. |
 
+### lessons_learned
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/corrective_action.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | source_type/source_id (polymorphic), summary, detail, applicable_processes[], applicable_part_families[], disseminated_to[], dissemination_date, status. |
+| Relationships typed | ✅ | `originated_from_capa → corrective_action` (many-to-one, nullable). |
+| State machine | ⬜ | Status enum (Captured/Under_Review/Approved/Disseminated); linear progression not modeled as explicit graph. |
+| Cross-ref integrity | 🟡 | In schemas/corrective_action.yaml, extensions/as9100-qms-layer.md, domain-map QMS section; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §10.3 (continual improvement); §7.1.6 (organizational knowledge — retained documented information of experience gained). |
+| Composition rule | ✅ | QMS compliance-trail entity. Mechanism for CAPA outcomes to propagate to future jobs, routings, and quality planning. |
+| Canonical framing | ✅ | AS9100D §10.3 and §7.1.6 terms. |
+
 ### machine_event
 
 | Dimension | Status | Note |
@@ -843,6 +921,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | ✅ | STEP AP238 (near-zero CM adoption acknowledged); MTConnect WorkOrder OperationId maps to work_order.id (not operation.id) per Phase 2.C design. |
 | Composition rule | ✅ | Routing template entity; distinct from `work_order` (execution instance) and `assembly_operation` (subtype); schema Phase 2.C. |
 | Canonical framing | ✅ | Canonical name `operation`; `work_order` is the execution instance. Dual-name confusion resolved Phase 2.C. |
+
+### operational_risk_assessment
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/corrective_action.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | subject_type/subject_id (polymorphic), assessment_date, assessed_by_id, risk_category, description, likelihood, consequence, risk_score, mitigation_plan, mitigation_owner_id, mitigation_due_date, residual_risk, opportunity_description, status. |
+| Relationships typed | ✅ | `for_purchase_order → customer_purchase_order` (many-to-one, nullable), `for_job → job` (many-to-one, nullable), `assessed_by → user` (many-to-one). |
+| State machine | ⬜ | Status enum (Identified/Mitigation_In_Progress/Mitigated/Accepted/Closed); not modeled as explicit graph. |
+| Cross-ref integrity | 🟡 | In schemas/corrective_action.yaml, extensions/as9100-qms-layer.md, domain-map QMS section; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §8.1.1(a–d) — determine and plan actions to address risks and opportunities. |
+| Composition rule | ✅ | QMS compliance-trail entity. Polymorphic subject FK (customer_purchase_order/job) per Decision 1.9 pattern. Input: customer_purchase_order.operational_risk_flags[]. |
+| Canonical framing | ✅ | AS9100D §8.1.1 terms; risk_category and likelihood/consequence enums aligned to aerospace QMS practice. |
 
 ### operator_qualification
 
@@ -1039,6 +1130,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Container of conditions[] and documentation_required[]. |
 | Canonical framing | ✅ | AMS/Nadcap terms. |
 
+### product_release_authorization
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/inspection.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | inspection_event_id, job_id, serial_ids[], lot_id, authorized_by_id, authorization_date, release_condition [Unconditional/Conditional], conditions, certification_package_id, notes. |
+| Relationships typed | ✅ | `covers_inspection → inspection_event` (many-to-one), `for_job → job` (many-to-one), `authorized_by → user` (many-to-one), `releases_into_package → certification_package` (many-to-one, nullable). |
+| State machine | ⬜ | Immutable record; no lifecycle. Terminal at creation. |
+| Cross-ref integrity | 🟡 | In schemas/inspection.yaml, extensions/as9100-qms-layer.md, domain-map §4; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §8.6 — retained documented information identifying the person authorizing release of products. |
+| Composition rule | ✅ | QMS compliance-trail entity. Provides §8.6 sign-off evidence record distinct from the inspection_event that contains the measurement data. |
+| Canonical framing | ✅ | AS9100D §8.6 terms. |
+
 ### prove_out_record
 
 | Dimension | Status | Note |
@@ -1129,6 +1233,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Standards provenance | 🟡 | X12 861 advance receipt notice; not explicitly mapped to receipt entity fields. |
 | Composition rule | ✅ | Goods-received event that triggers inventory movement, receiving inspection, and cert collection; schema Phase 2.E. |
 | Canonical framing | ✅ | Own terms. |
+
+### requirement_change_notification
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/orders.yaml` (AS9100D QMS layer 2026-04-26) |
+| Attributes complete | ✅ | customer_po_id, change_date, change_type, description, accepted, rejection_reason, triggered_ecn_id, triggered_flowdown_update, fai_re_required, notes. |
+| Relationships typed | ✅ | `changes_po → customer_purchase_order` (many-to-one), `triggers_ecn → engineering_change_notice` (many-to-one, nullable). |
+| State machine | ⬜ | Not lifecycle-bearing; immutable record of a received change notification. |
+| Cross-ref integrity | 🟡 | In schemas/orders.yaml, extensions/as9100-qms-layer.md, domain-map §6; not yet in uuid-discipline.md. |
+| Standards provenance | ✅ | AS9100D §8.2.4 — changes to requirements must be documented; relevant documented information amended. |
+| Composition rule | ✅ | QMS compliance-trail entity. Distinct from engineering_change_notice (internal authorization) and deviation_waiver (one-time use authorization). |
+| Canonical framing | ✅ | AS9100D §8.2.4 terms. |
 
 ### routing
 

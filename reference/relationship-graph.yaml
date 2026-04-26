@@ -5,11 +5,15 @@
 #   packaging.yaml, change_management.yaml, assembly_hardware.yaml,
 #   operator_qualification.yaml, assembly.yaml, inspection.yaml,
 #   characteristic.yaml, measurement_result.yaml, quality_tools.yaml)
+# Updated: 2026-04-26 (AS9100D QMS layer — 9 new entities; 31 new edges;
+#   edges extracted from schemas/orders.yaml, schemas/corrective_action.yaml,
+#   and field additions to schemas/inspection.yaml, schemas/quality.yaml,
+#   schemas/customer_purchase_order.yaml)
 #
 # Machine-readable enumeration of every edge in the ontology. Consumed by
 # agent traversal, graph visualization, and downstream deepening tasks.
 #
-# Total edges: 355 (137 original + 218 added 2026-04-24)
+# Total edges: 386 (355 prior + 31 added 2026-04-26)
 #
 # Extraction sources (see 'source' field values):
 #   - archetype_a / archetype_b / archetype_c: edges derived from the
@@ -2448,3 +2452,214 @@ relationships:
     verb: measured_by
     cardinality: many-to-one
     source: [schemas/measurement_result.yaml]
+
+  # ============================================================
+  # AS9100D QMS LAYER (2026-04-26)
+  # schemas/orders.yaml, schemas/corrective_action.yaml,
+  # + field additions to inspection.yaml, quality.yaml,
+  #   customer_purchase_order.yaml
+  # ============================================================
+
+  # ---- contract_review_event ----
+
+  - from: contract_review_event
+    to: customer_purchase_order
+    verb: reviews_po
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: contract_review_event
+    to: user
+    verb: reviewed_by
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: customer_purchase_order
+    to: contract_review_event
+    verb: has_contract_review
+    cardinality: many-to-one
+    source: [schemas/customer_purchase_order.yaml]
+
+  - from: customer_purchase_order
+    to: operational_risk_assessment
+    verb: has_risk_assessments
+    cardinality: one-to-many
+    source: [schemas/customer_purchase_order.yaml]
+
+  - from: customer_purchase_order
+    to: requirement_change_notification
+    verb: has_change_notifications
+    cardinality: one-to-many
+    source: [schemas/customer_purchase_order.yaml]
+
+  - from: customer_purchase_order
+    to: customer_complaint
+    verb: has_complaints
+    cardinality: one-to-many
+    source: [schemas/customer_purchase_order.yaml]
+
+  # ---- requirement_change_notification ----
+
+  - from: requirement_change_notification
+    to: customer_purchase_order
+    verb: changes_po
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: requirement_change_notification
+    to: engineering_change_notice
+    verb: triggers_ecn
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  # ---- customer_complaint ----
+
+  - from: customer_complaint
+    to: customer
+    verb: received_from
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: customer_complaint
+    to: job
+    verb: concerns_job
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: customer_complaint
+    to: shipment
+    verb: concerns_shipment
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: customer_complaint
+    to: nonconformance_report
+    verb: generates_ncr
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  - from: customer_complaint
+    to: corrective_action
+    verb: has_corrective_action
+    cardinality: many-to-one
+    source: [schemas/orders.yaml]
+
+  # ---- product_release_authorization ----
+
+  - from: product_release_authorization
+    to: inspection_event
+    verb: covers_inspection
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: product_release_authorization
+    to: job
+    verb: for_job
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: product_release_authorization
+    to: user
+    verb: authorized_by
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: product_release_authorization
+    to: certification_package
+    verb: releases_into_package
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  - from: inspection_event
+    to: user
+    verb: authorized_by
+    cardinality: many-to-one
+    source: [schemas/inspection.yaml]
+
+  # ---- corrective_action ----
+
+  - from: corrective_action
+    to: user
+    verb: owned_by
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: corrective_action
+    to: lessons_learned
+    verb: produced_lessons_learned
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: nonconformance_report
+    to: corrective_action
+    verb: has_corrective_action
+    cardinality: many-to-one
+    source: [schemas/quality.yaml]
+
+  - from: nonconformance_report
+    to: supplier
+    verb: scar_supplier
+    cardinality: many-to-one
+    source: [schemas/quality.yaml]
+
+  - from: first_article_inspection
+    to: engineering_change_notice
+    verb: triggered_by_ecn
+    cardinality: many-to-one
+    source: [schemas/quality.yaml]
+
+  # ---- audit_plan ----
+
+  - from: audit_plan
+    to: user
+    verb: led_by
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: audit_plan
+    to: audit_finding
+    verb: produces_findings
+    cardinality: one-to-many
+    source: [schemas/corrective_action.yaml]
+
+  # ---- audit_finding ----
+
+  - from: audit_finding
+    to: audit_plan
+    verb: from_audit
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: audit_finding
+    to: corrective_action
+    verb: requires_corrective_action
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  # ---- lessons_learned ----
+
+  - from: lessons_learned
+    to: corrective_action
+    verb: originated_from_capa
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  # ---- operational_risk_assessment ----
+
+  - from: operational_risk_assessment
+    to: customer_purchase_order
+    verb: for_purchase_order
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: operational_risk_assessment
+    to: job
+    verb: for_job
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]
+
+  - from: operational_risk_assessment
+    to: user
+    verb: assessed_by
+    cardinality: many-to-one
+    source: [schemas/corrective_action.yaml]

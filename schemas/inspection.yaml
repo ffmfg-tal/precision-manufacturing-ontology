@@ -100,6 +100,18 @@ entities:
           taken at different machine setups or part orientations (e.g., Setup 1 = OD features,
           Setup 2 = bore features). Matches setup_number on measurement_result records in
           this session for per-setup traceability.
+      authorized_by:
+        type: uuid
+        required: false
+        description: FK → user.id — quality engineer or quality manager authorizing this inspection session for product release (AS9100D §8.6); required when the session is a Final_Inspection or Source_Inspection that gates shipment
+      release_type:
+        type: enum
+        required: false
+        values: [Standard_Release, Conditional_Release, Hold_For_Customer_Source]
+        description: >
+          Standard_Release: inspection complete; product authorized for shipment.
+          Conditional_Release: authorized with documented conditions; conditions tracked in product_release_authorization.
+          Hold_For_Customer_Source: product cannot ship until customer source inspector signs off.
       notes:
         type: string
         required: false
@@ -310,6 +322,10 @@ entities:
         target: pmi_event
         cardinality: one-to-many
         description: PMI measurement events where this gauge was the instrument used
+      used_in_release_authorizations:
+        target: product_release_authorization
+        cardinality: one-to-many
+        description: Product release authorization records where this gauge was used as the primary inspection instrument
 
     state_machine:
       description: >
@@ -356,7 +372,7 @@ entities:
           trigger: Tool pulled from service before calibration is completed
         - from: Overdue
           to: Quarantined
-          trigger: System auto-quarantines tool when status transitions to Overdue (guard: cannot remain Overdue in production use)
+          trigger: "System auto-quarantines tool when status transitions to Overdue (guard: cannot remain Overdue in production use)"
         - from: Quarantined
           to: Current
           trigger: New calibration_record created with result = Pass or Adjusted; tool released from hold
@@ -457,3 +473,78 @@ entities:
         target: pmi_event
         cardinality: one-to-many
         description: PMI measurement events that record a reading for this characteristic
+
+  product_release_authorization:
+    description: >
+      AS9100D §8.6 product release authorization record. Documents that a qualified person
+      has reviewed the inspection evidence for a specific set of units and authorized their
+      release for shipment or transfer to the next stage. One record per authorization event —
+      it is immutable after creation. inspection_event provides the inspection session context
+      (measurements, QIF results, attachments); product_release_authorization provides the
+      explicit sign-off record that §8.6 requires. For Final_Inspection sessions, the
+      inspection_event.authorized_by field mirrors this record's authorized_by_id for quick
+      lookup; the authoritative record is here.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when release is authorized
+      inspection_event_id:
+        type: uuid
+        required: true
+        description: FK → inspection_event.id — the inspection session that produced the evidence for this release
+      job_id:
+        type: uuid
+        required: true
+        description: FK → job.id
+      serial_ids:
+        type: array
+        required: false
+        description: FK → serial_number.id[] — specific units authorized for release; null for lot-based release
+        items:
+          type: uuid
+      lot_id:
+        type: uuid
+        required: false
+        description: FK → material_lot.id — lot authorized for release; null for serialized release
+      authorized_by_id:
+        type: uuid
+        required: true
+        description: FK → user.id — quality engineer or quality manager who authorized release; must have quality signatory role
+      authorization_date:
+        type: date
+        required: true
+      release_condition:
+        type: enum
+        required: true
+        values: [Unconditional, Conditional]
+        description: >
+          Unconditional: all characteristics meet requirements; units authorized for shipment.
+          Conditional: release authorized with documented conditions or open dispositions that
+          do not prevent shipment but must be tracked to closure.
+      conditions:
+        type: string
+        required: false
+        description: Required when release_condition = Conditional; describes the conditions or open dispositions
+      certification_package_id:
+        type: uuid
+        required: false
+        description: FK → certification_package.id — the cert package assembled for shipment that this release authorizes
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      covers_inspection:
+        target: inspection_event
+        cardinality: many-to-one
+      for_job:
+        target: job
+        cardinality: many-to-one
+      authorized_by:
+        target: user
+        cardinality: many-to-one
+      releases_into_package:
+        target: certification_package
+        cardinality: many-to-one
+        nullable: true

@@ -247,6 +247,10 @@ entities:
         description: Populated when fai_reason = Production_Lapse; typical threshold is 2 years
       fai_date:
         type: date
+      repeat_reason_ecn_id:
+        type: uuid
+        required: false
+        description: FK → engineering_change_notice.id — the ECN that authorized the drawing or process change triggering this FAI cycle; required when fai_reason = Design_Change or Process_Change; provides the linkage from the FAI to the change control record that mandated it
       status:
         type: enum
         values: [Open, Submitted, Approved, Rejected, Conditionally_Approved]
@@ -565,13 +569,29 @@ entities:
         type: enum
         nullable: true
         values: [Pass, Fail, Pending]
-      # Preventive action
+      # AS9100D §8.1.4 counterfeit parts
+      counterfeit_flag:
+        type: boolean
+        required: false
+        description: Whether this NCR involves suspected or confirmed counterfeit / fraudulently misrepresented parts (AS9100D §8.1.4); triggers mandatory isolation, customer notification, and reporting to government/industry databases
+      # AS9100D §8.7.2 supplier corrective action
+      scar_supplier_id:
+        type: uuid
+        required: false
+        description: FK → supplier.id — populated when discovery_source = Receiving to track the supplier against whom a Supplier Corrective Action Request (SCAR) is issued; null for in-house nonconformances
+      # CAPA linkage (AS9100D §10.2 standalone corrective action)
+      corrective_action_id:
+        type: uuid
+        required: false
+        description: FK → corrective_action.id — links this NCR to a standalone CAPA entity when the nonconformance requires systemic root cause investigation beyond the MRB disposition; NCRs resolved by Use-As-Is or Scrap without systemic cause typically do not link to a CAPA
+      # Preventive action (retained for embedded quick-notes; corrective_action entity carries formal CAPA)
       root_cause:
         type: string
         nullable: true
       corrective_action:
         type: string
         nullable: true
+        description: Embedded corrective action notes (informal); formal CAPA tracked via corrective_action_id FK
       corrective_action_due:
         type: date
         nullable: true
@@ -614,6 +634,16 @@ entities:
         target: job
         cardinality: many-to-one
         nullable: true
+      scar_supplier:
+        target: supplier
+        cardinality: many-to-one
+        nullable: true
+        description: Supplier against whom a SCAR is issued (when discovery_source = Receiving)
+      has_corrective_action:
+        target: corrective_action
+        cardinality: many-to-one
+        nullable: true
+        description: Standalone CAPA entity for systemic root cause investigation
 
     state_machine:
       description: >

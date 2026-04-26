@@ -125,8 +125,9 @@ Additionally, QIF has no schema for nonconformance reports, MRB dispositions, or
 `extensions/quality-flowdowns.md` defines the narrative and field shapes. Machine-readable schemas are in `schemas/quality.yaml`:
 - `quality_clause` (`schemas/quality.yaml`) — reusable quality obligation with category, cascade rules, and job-requirement triggers; covers QA-001 through QA-017 and customer-specific variants
 - `quality_flowdown_plan` (`schemas/quality.yaml`) — the machine-readable quality addendum for a job: active clauses, derived requirements (FAI, CoC, MTR, DFARS, Nadcap), and sub-tier flowdown records
-- `first_article_inspection` (`schemas/quality.yaml`) — AS9102 three-form FAI structure; `subject_id + subject_type` polymorphic FK for part or assembly (Decision 1.9); Form 3 characteristics link to QIF UUIDs; `as9102_form_1/2/3` are embedded sub-objects
-- `nonconformance_report` (`schemas/quality.yaml`) — NCR and embedded MRB disposition workflow; `subject_id + subject_type` polymorphic FK; links to serial numbers, material lots, QIF result UUIDs, and rework jobs
+- `first_article_inspection` (`schemas/quality.yaml`) — AS9102 three-form FAI structure; `subject_id + subject_type` polymorphic FK for part or assembly (Decision 1.9); Form 3 characteristics link to QIF UUIDs; `as9102_form_1/2/3` are embedded sub-objects; `repeat_reason_ecn_id` FK links Design_Change/Process_Change FAI cycles to the authorizing ECN
+- `nonconformance_report` (`schemas/quality.yaml`) — NCR and embedded MRB disposition workflow; `subject_id + subject_type` polymorphic FK; links to serial numbers, material lots, QIF result UUIDs, and rework jobs; `counterfeit_flag` (§8.1.4); `scar_supplier_id` for SCAR issuance; `corrective_action_id` FK to standalone CAPA entity
+- `product_release_authorization` (`schemas/inspection.yaml`) — AS9100D §8.6 release authorization record: identifies the quality signatory who authorized product release, the inspection session evidence reviewed, and the release condition
 
 ---
 
@@ -168,8 +169,14 @@ ITAR classification on the production system item master gates which quotes can 
 
 **Canonical schemas (Phase 2.E):**
 - `schemas/customer.yaml` — persistent customer record: name, CAGE, compliance flags (ITAR screening, DoD prime, DFARS), ASL references
-- `schemas/customer_purchase_order.yaml` — inbound PO from customer; quality flowdown cascade origin
+- `schemas/customer_purchase_order.yaml` — inbound PO from customer; quality flowdown cascade origin; `special_requirements[]` (§8.2.2c), `operational_risk_flags[]` (§8.1.1), `contract_review_id` FK (§8.2.3.1)
 - `schemas/export_classification.yaml` — ITAR/EAR classification per part/assembly (Phase 2.B; applies to quoting gate)
+
+**Canonical schemas (AS9100D QMS layer, 2026-04-26):**
+- `schemas/orders.yaml` — three orders-domain QMS entities:
+  - `contract_review_event` — §8.2.3.1 review record; gates customer_purchase_order Acknowledged transition
+  - `requirement_change_notification` — §8.2.4 post-acceptance customer change tracking; triggers ECN and flowdown updates
+  - `customer_complaint` — §8.2.1 customer complaint tracking; links to NCR and CAPA
 
 **Canonical schemas (Phase 2.F):**
 - `schemas/sales_order.yaml` — the manufacturer's internal acceptance record derived from customer_purchase_order; drives job creation and tracks delivery; state machine from Draft through Closed
@@ -280,6 +287,24 @@ No Layer-1 standard defines ECN or deviation/waiver as data entities. AS9100 §8
 **Entities:** `engineering_change_notice`, `deviation_waiver`
 
 **Canonical schema:** `schemas/change_management.yaml`
+
+---
+
+### QMS Compliance-Trail Extension (AS9100D Layer, 2026-04-26)
+
+**What this covers:**
+AS9100D §8.1.1 (operational risk), §9.2 (internal audit), §10.2 (corrective action), and §10.3 (continual improvement) require a set of documented process records that sit above the product manufacturing layer. These entities do not participate in the composition test — a part decomposition walk does not pass through them. Their purpose is to provide the QMS evidence record that supports AS9100D certification: risk assessments per contract, CAPA lifecycle, internal audit plans and findings, and lessons learned for continual improvement.
+
+**Composition-test framing note:** These entities reference composition entities (job, NCR, FAI, customer_purchase_order) but are not themselves nodes in any archetype walk. The ontology's composition test (can a real aerospace part be decomposed end-to-end?) remains the measuring stick for schema completeness. These entities answer a different question: can the QMS compliance evidence record be structured and traced? Both questions matter; they measure different dimensions of the spec.
+
+**Canonical schema:** `schemas/corrective_action.yaml`
+- `corrective_action` — §10.2 standalone CAPA entity; root cause → action → effectiveness review lifecycle; polymorphic source FK (NCR / complaint / audit finding / internal observation)
+- `audit_plan` — §9.2 internal audit schedule: scope, criteria, lead auditor, team; drives audit_finding records
+- `audit_finding` — individual audit finding (Nonconformity / Observation / OFI); AS9100D clause reference; triggers corrective_action for Nonconformity findings
+- `lessons_learned` — §10.3 continual improvement capture; polymorphic source FK; `applicable_processes[]` and `applicable_part_families[]` for filtering to future work
+- `operational_risk_assessment` — §8.1.1 risk and opportunity record per PO or job; polymorphic subject FK; likelihood × consequence risk score; mitigation plan and residual risk acceptance
+
+**Prose narrative:** `extensions/as9100-qms-layer.md`
 
 ---
 

@@ -238,6 +238,40 @@ entities:
       suspension_date:
         type: date
         required: false
+      # AS9100D §8.4.1.1b Formal Supplier Approval
+      formal_approval_status:
+        type: enum
+        required: false
+        values: [AS9100_Approved, Conditionally_Approved, Pending_Audit, Not_Approved]
+        description: >
+          AS9100D §8.4.1.1b formal approval status classification.
+          AS9100_Approved: supplier holds current AS9100 certification or has passed manufacturer audit.
+          Conditionally_Approved: approved with documented conditions or improvement requirements.
+          Pending_Audit: qualification audit scheduled but not yet completed.
+          Not_Approved: not approved for use; supplement to status = Disqualified.
+      approval_scope_description:
+        type: string
+        required: false
+        description: Narrative description of the specific processes, materials, and capabilities the supplier is approved to perform for this manufacturer
+        examples: ["Heat treat AMS 2759/3 H900-H1150 on PH stainless; Nadcap accredited", "Passivation AMS 2700 Type II/VI on 300 and 400 series stainless"]
+      last_performance_review_date:
+        type: date
+        required: false
+        description: Date of the most recent formal supplier performance review; required by AS9100D §8.4.1 to maintain ongoing supplier monitoring
+      performance_review_cadence_months:
+        type: integer
+        required: false
+        description: Required interval between formal performance reviews in months (e.g., 12 = annual)
+        examples: [6, 12, 24]
+      counterfeit_risk_tier:
+        type: enum
+        required: false
+        values: [Standard, Elevated, High]
+        description: >
+          AS9100D §8.1.4 counterfeit parts risk tier for this supplier.
+          Standard: no elevated counterfeit risk identified; standard receiving inspection applies.
+          Elevated: supplier sells parts in categories with known counterfeit risk (e.g., electronic components, fasteners); enhanced receiving inspection and traceability required.
+          High: supplier identified as high-risk per GIDEP, customer alert, or prior NCR; may require third-party verification or restriction from critical parts.
 
     relationships:
       qualifies_supplier:

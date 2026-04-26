@@ -166,6 +166,31 @@ entities:
         type: string
         required: false
         description: Reason for rejection or cancellation (if applicable)
+      special_requirements:
+        type: array
+        required: false
+        description: >
+          Typed enumeration of special requirements called out on this PO or quality addendum
+          (AS9100D §8.2.2c). Structured complement to the free-text flowdown_clauses field.
+          Drives job-level requirement flags and quality_flowdown_plan derived requirements.
+        items:
+          type: enum
+          values: [Customer_Source_Inspection_Required, Nadcap_Required, FAI_Required, AS9100_QMS_Required, Statistical_Process_Control, Specific_Tooling_Required, Critical_Safety_Item, DoD_CSI_Designation, DFARS_Specialty_Metals, ITAR_Controlled_Data, First_Piece_Buyoff, Certificate_of_Conformance, Material_Test_Report]
+      operational_risk_flags:
+        type: array
+        required: false
+        description: >
+          Risk indicators identified during contract review (AS9100D §8.1.1 / §8.2.2d).
+          Populated during contract review; drives the operational_risk_assessment created
+          when the PO transitions to Under_Review. Flags here are inputs to the formal
+          risk assessment — not the assessment itself.
+        items:
+          type: enum
+          values: [New_Part_First_Time, Sole_Source_Supplier_Required, Complex_Geometry, Tight_Tolerances, ITAR_Controlled, New_Customer, Extended_Lead_Time, Outside_Normal_Capacity, Long_Lead_Material, Hazardous_Process_Required]
+      contract_review_id:
+        type: uuid
+        required: false
+        description: FK → contract_review_event.id — populated when §8.2.3.1 contract review is completed; the Acknowledged state guard requires this field to be non-null
 
     state_machine:
       description: >
@@ -213,7 +238,7 @@ entities:
         - from: Under_Review
           to: Acknowledged
           trigger: Contract review approved; ITAR screening confirmed; X12 855 sent
-          guard: customer.itar_screened = true AND export classifications verified
+          guard: customer.itar_screened = true AND export classifications verified AND contract_review_id IS NOT NULL AND contract_review_event.review_outcome = Accepted
         - from: Under_Review
           to: Rejected
           trigger: Contract review reveals terms, pricing, or compliance issue the manufacturer cannot accept
@@ -257,3 +282,21 @@ entities:
         cardinality: one-to-many
         nullable: true
         description: Parts referenced in PO line items (where matched in item master)
+      has_contract_review:
+        target: contract_review_event
+        cardinality: many-to-one
+        nullable: true
+        description: §8.2.3.1 contract review performed before acknowledgment; populated when status transitions to Acknowledged
+      has_risk_assessments:
+        target: operational_risk_assessment
+        cardinality: one-to-many
+        description: Operational risk assessments performed against this PO (AS9100D §8.1.1)
+      has_change_notifications:
+        target: requirement_change_notification
+        cardinality: one-to-many
+        description: Post-acceptance requirement change notifications received from customer (§8.2.4)
+      has_complaints:
+        target: customer_complaint
+        cardinality: one-to-many
+        nullable: true
+        description: Customer complaints linked to orders produced under this PO (§8.2.1)

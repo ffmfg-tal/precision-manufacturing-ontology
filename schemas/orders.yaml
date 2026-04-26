@@ -1,0 +1,251 @@
+# schemas/orders.yaml
+#
+# Orders cluster: contract review, requirement change, and customer complaint entities.
+#
+# Layer-1 coverage:
+#   X12 850 carries the inbound PO (customer_purchase_order). Contract review is the
+#   manufacturer's internal acceptance gate — no Layer-1 standard defines it as a data
+#   entity. X12 has no schema for requirement change notifications or customer complaints.
+#
+# AS9100D clauses addressed:
+#   §8.2.1  Customer communication and complaint handling → customer_complaint
+#   §8.2.3.1 Review of requirements for products/services → contract_review_event
+#   §8.2.4  Changes to requirements for products/services → requirement_change_notification
+#
+# Prose source: extensions/as9100-qms-layer.md
+# Domain: reference/domain-map.md §6 (Sales and Quoting)
+#
+# Entities: contract_review_event, requirement_change_notification, customer_complaint
+
+entities:
+
+  contract_review_event:
+    description: >
+      Immutable record of the §8.2.3.1 contract review performed on an inbound customer PO
+      before the manufacturer commits to fulfil it. Captures the three AS9100D required checks:
+      capability confirmation (can we make this?), requirements clarity (do we understand
+      the drawing and special requirements?), and flowdown confirmation (do quality clauses
+      map to actionable shop requirements?). One record per PO review; if a PO is modified
+      before acknowledgment a new contract_review_event is created for the revised PO.
+      Linking customer_purchase_order.contract_review_id to this record provides the audit
+      evidence that §8.2.3.1 review was completed before Acknowledged status was reached.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when contract review is opened
+      customer_po_id:
+        type: uuid
+        required: true
+        description: FK → customer_purchase_order.id — the PO under review
+      review_date:
+        type: date
+        required: true
+        description: Date review was completed
+      reviewer_id:
+        type: uuid
+        required: true
+        description: FK → user.id — lead reviewer (typically quality engineer or ops manager)
+      review_outcome:
+        type: enum
+        required: true
+        values: [Accepted, Rejected, Conditional]
+        description: >
+          Accepted: all checks passed; PO can be acknowledged.
+          Rejected: PO cannot be accepted (capability gap, compliance issue, or unresolvable ambiguity).
+          Conditional: accepted with documented conditions that must be resolved before production starts.
+      capability_confirmed:
+        type: boolean
+        required: true
+        description: Manufacturer confirmed it has the capability, capacity, and lead time to fulfil all line items
+      requirements_clear:
+        type: boolean
+        required: true
+        description: All drawing callouts, revision levels, special requirements, and delivery terms are understood without ambiguity
+      flowdown_confirmed:
+        type: boolean
+        required: true
+        description: Quality clause flowdowns from PO or quality addendum are mapped to actionable shop requirements
+      itar_check_complete:
+        type: boolean
+        required: false
+        description: ITAR/EAR export classification review completed for all line items (required for ITAR-flagged POs)
+      conditions_description:
+        type: string
+        required: false
+        description: Documented conditions when review_outcome = Conditional; must be resolved before production starts
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      reviews_po:
+        target: customer_purchase_order
+        cardinality: many-to-one
+        description: The PO this review assesses
+      reviewed_by:
+        target: user
+        cardinality: many-to-one
+
+  requirement_change_notification:
+    description: >
+      Record of a customer-initiated change to the requirements on an accepted PO, per
+      AS9100D §8.2.4. Captures what changed, when it was received, whether the manufacturer
+      accepted the change, and which downstream records (ECN, flowdown update, new FAI)
+      were triggered. One record per change event. Each accepted change that affects
+      drawing or routing triggers an engineering_change_notice (triggered_ecn_id).
+      Changes that affect quality clauses trigger a re-evaluation of the quality_flowdown_plan.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when change notification is received
+      customer_po_id:
+        type: uuid
+        required: true
+        description: FK → customer_purchase_order.id — the PO being modified
+      change_date:
+        type: date
+        required: true
+        description: Date the change notification was received from the customer
+      change_type:
+        type: enum
+        required: true
+        values: [Drawing_Revision, PO_Amendment, Quality_Clause_Change, Schedule_Change, Quantity_Change, Cancellation_Partial]
+        description: Nature of the requirement change
+      description:
+        type: string
+        required: true
+        description: Description of what changed and the customer's stated reason
+      accepted:
+        type: boolean
+        required: true
+        description: Whether the manufacturer accepted the change
+      rejection_reason:
+        type: string
+        required: false
+        description: Reason for rejection if accepted = false
+      triggered_ecn_id:
+        type: uuid
+        required: false
+        description: FK → engineering_change_notice.id — the ECN opened to authorize the change in shop documentation
+      triggered_flowdown_update:
+        type: boolean
+        required: false
+        description: Whether the change triggered an update to the quality_flowdown_plan
+      fai_re_required:
+        type: boolean
+        required: false
+        description: Whether the change requires a new or partial FAI per AS9102 Rev C
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      changes_po:
+        target: customer_purchase_order
+        cardinality: many-to-one
+      triggers_ecn:
+        target: engineering_change_notice
+        cardinality: many-to-one
+        nullable: true
+
+  customer_complaint:
+    description: >
+      Record of a complaint received from a customer regarding product, delivery, or service,
+      per AS9100D §8.2.1. Captures the complaint, the corrective action initiated, and the
+      resolution. Distinct from nonconformance_report (which is internally initiated at
+      discovery time) — a customer_complaint is customer-initiated post-shipment feedback.
+      A complaint that identifies a real nonconformance links to an NCR via ncr_id;
+      one that requires systemic corrective action links to a corrective_action via
+      corrective_action_id.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when complaint is received and logged
+      complaint_number:
+        type: string
+        required: true
+        description: Sequential complaint reference number (e.g., "CC-2026-0001")
+      customer_id:
+        type: uuid
+        required: true
+        description: FK → customer.id
+      complaint_date:
+        type: date
+        required: true
+        description: Date complaint was received
+      complaint_type:
+        type: enum
+        required: true
+        values: [Late_Delivery, Dimensional_Nonconformance, Material_Nonconformance, Documentation_Error, Cosmetic_Defect, Packaging_Damage, Wrong_Part_Shipped, Quantity_Short, Other]
+      job_id:
+        type: uuid
+        required: false
+        description: FK → job.id — the production job that produced the complained-about parts
+      shipment_id:
+        type: uuid
+        required: false
+        description: FK → shipment.id — the shipment containing the disputed parts
+      serial_ids:
+        type: array
+        required: false
+        description: FK → serial_number.id[] — specific unit(s) identified in the complaint
+        items:
+          type: uuid
+      customer_reference:
+        type: string
+        required: false
+        description: Customer's internal complaint or RMA number
+      description:
+        type: string
+        required: true
+        description: Full description of the complaint as received from the customer
+      ncr_id:
+        type: uuid
+        required: false
+        description: FK → nonconformance_report.id — the NCR opened if complaint confirms a product nonconformance
+      corrective_action_id:
+        type: uuid
+        required: false
+        description: FK → corrective_action.id — the CAPA initiated to address systemic cause
+      response_due_date:
+        type: date
+        required: false
+        description: Customer-specified or internally committed date for complaint response
+      response_sent_date:
+        type: date
+        required: false
+      resolution_summary:
+        type: string
+        required: false
+        description: Summary of resolution communicated to the customer
+      closed_date:
+        type: date
+        required: false
+      status:
+        type: enum
+        required: true
+        values: [Open, Under_Investigation, Corrective_Action_In_Progress, Resolved, Closed]
+
+    relationships:
+      received_from:
+        target: customer
+        cardinality: many-to-one
+      concerns_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+      concerns_shipment:
+        target: shipment
+        cardinality: many-to-one
+        nullable: true
+      generates_ncr:
+        target: nonconformance_report
+        cardinality: many-to-one
+        nullable: true
+      has_corrective_action:
+        target: corrective_action
+        cardinality: many-to-one
+        nullable: true

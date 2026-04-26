@@ -65,27 +65,32 @@ All 12 unscoped assembly-domain entities have been resolved: 9 received new sche
 
 ---
 
-## AS9100 QMS Alignment Review — Deferred
+## AS9100 QMS Alignment Review — Resolved 2026-04-26
 
-**Deferred — pending review**
+**Resolved.** Alignment gaps identified in April 2026 between the ontology's Layer 2 model and a conforming AS9100D QMS implementation have been addressed. Nine new entities added; field additions made to four existing schemas.
 
-Alignment gaps identified between the ontology's Layer 2 model and a conforming AS9100D QMS implementation reviewed in April 2026.
+**Gap resolution:**
 
-**Alignment gaps identified:**
+| Gap | Resolution |
+|---|---|
+| `nonconformance_report` embeds CA fields; no standalone CAPA entity | `corrective_action` entity added to `schemas/corrective_action.yaml`; NCR gains `corrective_action_id` FK; embedded text fields retained for informal notes |
+| No §8.2.3.1 contract review evidence record | `contract_review_event` entity added to `schemas/orders.yaml`; `customer_purchase_order` gains `contract_review_id` FK; Acknowledged guard updated to require completed review |
+| No §8.2.4 requirement change notification record | `requirement_change_notification` entity added to `schemas/orders.yaml` |
+| No §8.2.1 customer complaint record | `customer_complaint` entity added to `schemas/orders.yaml` |
+| No §8.6 product release authorization record | `product_release_authorization` entity added to `schemas/inspection.yaml`; `inspection_event` gains `authorized_by` and `release_type` fields |
+| No §9.2 internal audit evidence entities | `audit_plan` and `audit_finding` entities added to `schemas/corrective_action.yaml` |
+| No §10.3 continual improvement capture | `lessons_learned` entity added to `schemas/corrective_action.yaml` |
+| No §8.1.1 operational risk record | `operational_risk_assessment` entity added to `schemas/corrective_action.yaml`; `customer_purchase_order` gains `operational_risk_flags[]` |
+| No §8.1.4 counterfeit parts flag on NCR | `nonconformance_report.counterfeit_flag` added |
+| No SCAR supplier linkage on NCR | `nonconformance_report.scar_supplier_id` added |
+| No supplier performance review cadence fields | `approved_supplier_list_entry` gains `formal_approval_status`, `approval_scope_description`, `last_performance_review_date`, `performance_review_cadence_months`, `counterfeit_risk_tier` |
+| No FAI → ECN traceability for change-driven FAIs | `first_article_inspection.repeat_reason_ecn_id` added |
 
-| Ontology Entity | Ontology Status Model | AS9100 QMS Pattern | Gap |
-|---|---|---|---|
-| `nonconformance_report` | Open → Pending_MRB → Rework_In_Progress → Closed / Scrapped | draft → containment → investigation → disposition → corrective_action → verification → closed | Different granularity; QMS follows AS9100 process flow; ontology follows MRB disposition flow. Both valid for their layers. |
-| `nonconformance_report` | `mrb_status` embedded sub-object | CAPA entity as separate table | Ontology embeds MRB; a conforming QMS typically has a standalone CAPA entity. Consider whether CAPA needs a Phase 3.5 standalone entity. |
-| `nonconformance_report` | `corrective_action_verified` boolean | `corrective_actions` junction table (links NC or CAPA) | AS9100-compliant implementations often use a richer corrective action model. |
-| Missing entity | — | `sdr` (Supplier Deviation Request — AS9100 8.7.2) | SDR is not modeled in the ontology. Candidate for Phase 3.5. |
-| Missing entity | — | `rma` | `shipment` with direction=return covers inbound; a full RMA entity adds richer customer contact / resolution tracking fields. May warrant a dedicated RMA entity or `rma_record` embedded in `shipment`. |
-
-**Action items (not yet scheduled):**
-1. Decide whether `CAPA` should be a standalone ontology entity (currently embedded in NCR).
-2. Decide whether `SDR` (Supplier Deviation Request, AS9100 8.7.2) needs a standalone entity.
-3. Review `nonconformance_report.status` enum alignment — ontology and conforming QMS implementations use different state models at different granularities. Decision: keep as-is at Layer 2 with annotation, or align enums to 7-state AS9100 process model.
-4. Check whether a standalone RMA entity adds material coverage beyond `shipment` (direction=return).
+**Remaining open (not addressed in this pass):**
+- `nonconformance_report.status` enum alignment: ontology MRB-disposition flow vs. 7-state AS9100 process flow — kept as-is per architectural note in quality.yaml (both flows valid at different layers); the AS9100 process flow is implemented in the quality system (warp-core), not in the ontology NCR state machine.
+- `SDR` (Supplier Deviation Request, AS9100 §8.7.2): not modeled; `deviation_waiver` in `schemas/change_management.yaml` provides partial coverage for use-as-is authorizations. Full SDR standalone entity deferred.
+- `RMA` standalone entity: `shipment` with `direction=return` covers inbound returns; full RMA entity with customer contact and resolution tracking deferred.
+- `extensions/uuid-discipline.md` entity table: Phase 2–4 + QMS layer entities not yet added to UUID table. Cross-ref integrity gap remains.
 
 ---
 

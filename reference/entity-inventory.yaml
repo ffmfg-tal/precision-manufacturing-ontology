@@ -1,6 +1,9 @@
 # Entity Inventory for the precision-manufacturing-ontology
 # Generated: 2026-04-22 (coherence pass, Task 5)
 # Updated: 2026-04-24 (Phase 2 additions — 29 new entries; 9 stale has_schema fixes; InspectAI entities added)
+# Updated: 2026-04-26 (AS9100D QMS layer — 9 new entries: audit_finding, audit_plan,
+#   contract_review_event, corrective_action, customer_complaint, lessons_learned,
+#   operational_risk_assessment, product_release_authorization, requirement_change_notification)
 # Source: reference/composition-archetypes.md + extensions/*.md + reference/domain-map.md + schemas/*.yaml
 #
 # Purpose: machine-readable union of every entity the ontology touches. Feeds the
@@ -24,10 +27,13 @@
 #   - notes: interpretation decisions, alias resolutions, phase-of-authoring notes.
 #
 # Entries sorted alphabetically by name.
-# Entity count: 117 (82 original + 29 Phase 2 additions (process engineering, tool room,
+# Entity count: 126 (82 original + 29 Phase 2 additions (process engineering, tool room,
 #   packaging, change management, assembly hardware, assembly, inspection extensions) +
 #   6 InspectAI-derived additions: characteristic, measurement_result, fmea_item,
-#   control_plan_item, spc_result, ppap_submission).
+#   control_plan_item, spc_result, ppap_submission +
+#   9 AS9100D QMS layer additions: audit_finding, audit_plan, contract_review_event,
+#   corrective_action, customer_complaint, lessons_learned, operational_risk_assessment,
+#   product_release_authorization, requirement_change_notification).
 
 inventory:
 
@@ -90,6 +96,22 @@ inventory:
       - reference/composition-archetypes.md  # Archetype C: R-MFG-GMB-BKT-ASSY-012-v1
     has_schema: schemas/routing.yaml
     notes: "Distinct entity from routing in schemas/routing.yaml (Phase 2.C). assembly_routing is the process plan template for assembly operations; it adds torque_spec_ref, required_witnesses, and assembly-specific fields that do not apply to machining routings."
+
+  - name: audit_finding
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/corrective_action.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/corrective_action.yaml
+    notes: "Individual finding from an internal audit (AS9100D §9.2). Finding types: Nonconformity, Observation, Opportunity_for_Improvement. Nonconformity findings require a corrective_action (corrective_action_id FK). Severity enum: Major/Minor/OFI. References audit_plan.id. Schema: schemas/corrective_action.yaml (AS9100D QMS layer)."
+
+  - name: audit_plan
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/corrective_action.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/corrective_action.yaml
+    notes: "AS9100D §9.2 internal audit schedule record. Captures scope, criteria, lead auditor, team, planned/actual date, and status. One plan per audit event; produces audit_finding records. AS9100D requires audit programs to be documented and results retained. Schema: schemas/corrective_action.yaml (AS9100D QMS layer)."
 
   - name: bom_line
     archetypes_used_in: none
@@ -188,6 +210,22 @@ inventory:
     has_schema: schemas/quality_tools.yaml
     notes: "Single row in an AIAG APQP control plan. Specifies how one product or process characteristic at one process step is monitored during production — measurement method, sample size, frequency, reaction plan. References characteristic.id. InspectAI owns control plan workflow; ontology references by FK. Schema: schemas/quality_tools.yaml (InspectAI-derived)."
 
+  - name: contract_review_event
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/orders.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/orders.yaml
+    notes: "AS9100D §8.2.3.1 contract review record. Immutable — one record per PO review. Captures capability, requirements-clarity, and flowdown confirmation checks. customer_purchase_order.contract_review_id FK links PO to review; Acknowledged guard requires non-null FK and outcome = Accepted. Schema: schemas/orders.yaml (AS9100D QMS layer)."
+
+  - name: corrective_action
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/corrective_action.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/corrective_action.yaml
+    notes: "AS9100D §10.2 standalone CAPA entity. Replaces embedded corrective_action boolean/text in nonconformance_report with a full lifecycle entity: root cause analysis method, action tracking, effectiveness criteria, and verification. Polymorphic source FK (NCR/complaint/audit_finding/supplier_issue/internal). State machine: Open → Root_Cause_Analysis → Action_In_Progress → Effectiveness_Review → Closed (or Cancelled). Schema: schemas/corrective_action.yaml (AS9100D QMS layer)."
+
   - name: country
     archetypes_used_in: [A, B, C]
     existing_definitions:
@@ -224,6 +262,14 @@ inventory:
       - extensions/supplier-approval.md  # prose narrative
     has_schema: schemas/customer_asl.yaml
     notes: "Customer's Approved Source List document. Distinct from approved_supplier_list_entry (the manufacturer's per-vendor record). Entries link via supplier_id → supplier.id per Decision 1.3. Schema: schemas/customer_asl.yaml (Phase 2.E)."
+
+  - name: customer_complaint
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/orders.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/orders.yaml
+    notes: "AS9100D §8.2.1 customer complaint record. Distinct from nonconformance_report (internally initiated) — this is customer-initiated post-shipment feedback. Links to NCR (ncr_id) when complaint confirms a product nonconformance, and to corrective_action (corrective_action_id) when systemic cause identified. Status: Open/Under_Investigation/Corrective_Action_In_Progress/Resolved/Closed. Schema: schemas/orders.yaml (AS9100D QMS layer)."
 
   - name: customer_purchase_order
     archetypes_used_in: [B, C]
@@ -445,6 +491,14 @@ inventory:
     has_schema: schemas/assembly.yaml
     notes: "Verification record confirming all required parts, fasteners, and consumables for an assembly operation are present before work begins. kit_contents array is a flat embedded JSONB (immutable once assembly starts). complete = true gates the assembly_operation from starting. Schema added Phase 2: schemas/assembly.yaml."
 
+  - name: lessons_learned
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/corrective_action.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/corrective_action.yaml
+    notes: "AS9100D §10.3 continual improvement capture. Polymorphic source FK (audit_finding/customer_complaint/NCR/FAI_rejection/corrective_action/project_retrospective). applicable_processes[] and applicable_part_families[] filter lessons to relevant future work. Status: Captured/Under_Review/Approved/Disseminated. Schema: schemas/corrective_action.yaml (AS9100D QMS layer)."
+
   - name: machine_event
     archetypes_used_in: [A, B, C]
     existing_definitions:
@@ -588,6 +642,14 @@ inventory:
     has_schema: schemas/routing.yaml
     notes: "In-house routing operation template. Distinct from work_order (the execution instance on a specific job). work_order.operation_id FKs to operation.id. Schema: schemas/routing.yaml (Phase 2.C)."
 
+  - name: operational_risk_assessment
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/corrective_action.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/corrective_action.yaml
+    notes: "AS9100D §8.1.1 operational risk and opportunity record per PO or job. Polymorphic subject FK (customer_purchase_order/job) per Decision 1.9 pattern. Likelihood × consequence risk score; mitigation plan and residual risk acceptance. customer_purchase_order.operational_risk_flags[] feed initial risk identification. Schema: schemas/corrective_action.yaml (AS9100D QMS layer)."
+
   - name: operator_qualification
     archetypes_used_in: none
     existing_definitions:
@@ -717,6 +779,14 @@ inventory:
     has_schema: schemas/outside_process_operation.yaml
     notes: "AMS/MIL/ASTM/NASM process spec as first-class entity. Covers both outside process specs and in-house programming procedures. Schema: schemas/outside_process_operation.yaml (Phase 2.C)."
 
+  - name: product_release_authorization
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/inspection.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/inspection.yaml
+    notes: "AS9100D §8.6 product release authorization record. Immutable after creation. Identifies the quality signatory who authorized units for shipment, the inspection session reviewed, the release condition (Unconditional/Conditional), and the cert package reference. Distinct from inspection_event (which contains the evidence) — this is the explicit sign-off record §8.6 requires. Schema: schemas/inspection.yaml (AS9100D QMS layer)."
+
   - name: prove_out_record
     archetypes_used_in: none
     existing_definitions:
@@ -779,6 +849,14 @@ inventory:
       - extensions/material-certs.md  # cert collection at receiving
     has_schema: schemas/receipt.yaml
     notes: "Goods-received event at the shop dock. Distinct from shipment (which tracks logistics/transit) — receipt is the event that triggers inventory movement, receiving inspection, and cert collection. One receipt per inbound shipment. Schema: schemas/receipt.yaml (Phase 2.E)."
+
+  - name: requirement_change_notification
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/orders.yaml  # canonical schema (AS9100D QMS layer 2026-04-26)
+      - extensions/as9100-qms-layer.md  # prose narrative
+    has_schema: schemas/orders.yaml
+    notes: "AS9100D §8.2.4 customer-initiated change to an accepted PO. Captures change_type (Drawing_Revision/PO_Amendment/Quality_Clause_Change/etc.), accepted boolean, triggered ECN reference, and FAI re-requirement flag. Distinct from engineering_change_notice (manufacturer's internal authorization) and deviation_waiver (one-time authorization). Schema: schemas/orders.yaml (AS9100D QMS layer)."
 
   - name: routing
     archetypes_used_in: [A, B, C]
