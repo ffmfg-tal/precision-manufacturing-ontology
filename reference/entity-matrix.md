@@ -285,6 +285,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Alias of `certification_document` (cert_type: ConflictMineral) per decision 1.6; discriminator in `schemas/certification_document.yaml`. |
 | Canonical framing | ✅ | DFARS terms. |
 
+### consumable_inventory
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/consumable_inventory.yaml` (2026-05-16) |
+| Attributes complete | ✅ | id, description, consumable_kind, cutter_definition_id (optional FK), manufacturer, manufacturer_part_number, unit_of_issue, inventory_location_id (optional FK), quantity_on_hand, min_quantity, max_quantity, consumption_mode, notes; all fields specified. |
+| Relationships typed | ✅ | `for_cutter → cutter_definition` (many-to-one), `stored_at → inventory_location` (many-to-one); inverse on cutter_definition: `tracked_in_inventory` (one-to-many). |
+| State machine | ⬜ | Register entity — not lifecycle-bearing; `consumption_mode` enum (ConsumedDiscarded / ConsumedRecoverable / IssuedReturnable) carries lifecycle semantics inline. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | 🟡 | No Layer-1 standard (STEP, MTConnect, QIF, X12, ISA-95) defines a shop-floor consumable register; ISA-95 storage zones are the closest concept and ground `inventory_location`. |
+| Composition rule | ✅ | Register entity: one row per stock-tracked unit per location. Deliberately distinct from `material` (production raw stock with heat/lot/DFARS traceability). |
+| Canonical framing | ✅ | Own terms. |
+
 ### control_plan_item
 
 | Dimension | Status | Note |
@@ -408,7 +421,7 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 |---|---|---|
 | Schema defined | ✅ | `schemas/tool_room.yaml` (Phase 2) |
 | Attributes complete | ✅ | manufacturer, manufacturer_part_number, description, tool_type, diameter_in, corner_radius_in, flute_count, overall_length_in, material, coating, notes; all fields specified. |
-| Relationships typed | ✅ | `used_in_assemblies → tool_assembly_definition` (one-to-many), `tracked_in_life_records → tool_life_record` (one-to-many); all with cardinality. |
+| Relationships typed | ✅ | `used_in_assemblies → tool_assembly_definition` (one-to-many), `tracked_in_life_records → tool_life_record` (one-to-many), `tracked_in_inventory → consumable_inventory` (one-to-many, added 2026-05-16); all with cardinality. |
 | State machine | ⬜ | Catalog entity — not lifecycle-bearing; cutters are consumable, lifecycle tracked via tool_life_record. |
 | Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
 | Standards provenance | 🟡 | ISO 13399 covers cutting tool representation for catalog interchange; schema captures key geometry fields aligned with ISO 13399 concepts but no formal field-level mapping. |

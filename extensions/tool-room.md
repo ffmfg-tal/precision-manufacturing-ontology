@@ -23,7 +23,7 @@ This extension defines the **tool room** as a set of connected entities spanning
 
 ### cutter_definition
 
-The catalog entry for a cutter type. `cutter_definition` is the abstract specification — manufacturer, part number, geometry, coating. It is not a physical item. Cutters are consumable and are not individually serialized by default; a single cutter_definition may represent hundreds of physical cutters consumed over time. Consumption and life are tracked via `tool_life_record`. Physical cutter inventory (purchase orders, stock counts) links to cutter_definition via the item master, not via a separate instance table.
+The catalog entry for a cutter type. `cutter_definition` is the abstract specification — manufacturer, part number, geometry, coating. It is not a physical item. Cutters are consumable and are not individually serialized by default; a single cutter_definition may represent hundreds of physical cutters consumed over time. Consumption per job/work-order run is tracked via `tool_life_record`. Aggregate physical stock counts (on-hand quantities, reorder thresholds, location) are tracked via `consumable_inventory` (`schemas/consumable_inventory.yaml`) with `consumable_kind ∈ {Cutter, Insert}` and `cutter_definition_id` linking the stock row back to this catalog entry. See `extensions/consumable-inventory.md`.
 
 ```yaml
 cutter_definition:
@@ -200,7 +200,7 @@ A service event performed on a physical tool or instrument: sharpening, cleaning
 
 - When `asset_type` is `Fixture` or `Holder`: `asset_part_id` → `part.id` is populated; `tool_gauge_id` is null.
 - When `asset_type` is `Gauge`: `tool_gauge_id` → `tool_gauge.id` (defined in `schemas/inspection.yaml`) is populated; `asset_part_id` is null.
-- `Cutter` asset type is included as a discriminator value for tracking events on specific cutter inventory where relevant, but cutters are not individually serialized by default; see `tool_life_record` for typical cutter lifecycle tracking.
+- `Cutter` asset type is included as a discriminator value for tracking maintenance events on specific cutter inventory where relevant (e.g., shop-internal sharpening), but cutters are not individually serialized by default; see `tool_life_record` for per-run consumption and `consumable_inventory` (`schemas/consumable_inventory.yaml`) for aggregate stock counts.
 
 ```yaml
 tool_maintenance_event:
@@ -349,7 +349,7 @@ This chain satisfies AS9100 Rev D §8.5.1 (process control evidence) and custome
 
 Tool room entities in the production system are currently managed across several disconnected areas:
 
-- **Item master** — cutter types live as purchased items; holder types live as fixtures; neither has a structured assembly relationship
+- **Item master / consumable inventory** — cutter types live as purchased items; holder types live as fixtures; neither has a structured assembly relationship. Stock counts of cutters, inserts, grinding wheels, and other shop-floor consumables are tracked in `consumable_inventory` (see `extensions/consumable-inventory.md`); cutters and inserts link back to `cutter_definition` via `cutter_definition_id`.
 - **Job routing tool list** — tool numbers are documented in routing notes or attached PDF tooling lists; not linked to a catalog entity
 - **Presetter software** — Zoller or similar exports offset data as CSV or proprietary format; not imported into the ERP as structured records
 - **Checkout** — paper log or spreadsheet in the tool crib; no ERP record

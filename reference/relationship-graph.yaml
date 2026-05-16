@@ -9,11 +9,14 @@
 #   edges extracted from schemas/orders.yaml, schemas/corrective_action.yaml,
 #   and field additions to schemas/inspection.yaml, schemas/quality.yaml,
 #   schemas/customer_purchase_order.yaml)
+# Updated: 2026-05-16 (consumable_inventory entity — 1 new entity; 3 new edges;
+#   edges extracted from schemas/consumable_inventory.yaml and field addition
+#   to schemas/tool_room.yaml cutter_definition.tracked_in_inventory)
 #
 # Machine-readable enumeration of every edge in the ontology. Consumed by
 # agent traversal, graph visualization, and downstream deepening tasks.
 #
-# Total edges: 386 (355 prior + 31 added 2026-04-26)
+# Total edges: 389 (355 prior + 31 added 2026-04-26 + 3 added 2026-05-16)
 #
 # Extraction sources (see 'source' field values):
 #   - archetype_a / archetype_b / archetype_c: edges derived from the
@@ -1827,6 +1830,35 @@ relationships:
     verb: incurred_on
     cardinality: many-to-one
     source: [schemas/tool_room.yaml]
+
+  # ============================================================
+  # CONSUMABLE INVENTORY (2026-05-16)
+  # ============================================================
+
+  - from: cutter_definition
+    to: consumable_inventory
+    verb: tracked_in_inventory
+    cardinality: one-to-many
+    source: [schemas/tool_room.yaml, schemas/consumable_inventory.yaml]
+    description: >
+      Physical stock-tracked units of this cutter type — on-hand counts,
+      reorder thresholds, locations.
+
+  - from: consumable_inventory
+    to: cutter_definition
+    verb: for_cutter
+    cardinality: many-to-one
+    source: [schemas/consumable_inventory.yaml]
+    description: >
+      Catalog spec this stock-tracked unit conforms to; populated when
+      consumable_kind ∈ {Cutter, Insert}.
+
+  - from: consumable_inventory
+    to: inventory_location
+    verb: stored_at
+    cardinality: many-to-one
+    source: [schemas/consumable_inventory.yaml]
+    description: Physical location where this stock lives.
 
   # ============================================================
   # PACKAGING

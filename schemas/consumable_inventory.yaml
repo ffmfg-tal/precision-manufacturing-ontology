@@ -1,0 +1,188 @@
+# schemas/consumable_inventory.yaml
+#
+# Layer-1 coverage: NONE.
+#   No Layer-1 standard (STEP AP242, MTConnect, QIF, X12 EDI, ISA-95) defines a
+#   shop-floor consumable/tooling stock register. ISA-95 Part 2 covers material
+#   lots and storage zones, but not unit-tracked non-production stock (cutters
+#   awaiting issue, grinding wheels, gloves, swabs, hex bits, etc.). This is a
+#   pure manufacturer-layer entity.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   cutter_definition is defined in schemas/tool_room.yaml — referenced by
+#     consumable_inventory.cutter_definition_id when consumable_kind ∈ {Cutter, Insert}
+#   inventory_location is defined in schemas/inventory_location.yaml —
+#     referenced by consumable_inventory.inventory_location_id
+#
+# Prose source: extensions/consumable-inventory.md
+#
+# Architectural decisions:
+#   consumable_inventory is deliberately distinct from material (schemas/material.yaml).
+#     material models production raw stock consumed 1:1 against a job with full
+#     heat/lot/DFARS traceability. consumable_inventory models non-serialized tooling
+#     and shop-floor consumables that are unit-tracked but consumed in more complex
+#     patterns: consumed-and-discarded (gloves, swabs), consumed-and-recoverable
+#     (cutters that may be re-sharpened and re-issued), and issued-and-returned
+#     (sockets, bits, torque-wrench accessories). The consumption_mode enum carries
+#     this distinction.
+#   This entity fills the gap previously noted on cutter_definition: "Physical
+#     cutter inventory (purchase orders, stock counts) links to cutter_definition
+#     via the item master." That sentence now points here. When consumable_kind is
+#     Cutter or Insert, cutter_definition_id provides the link to the catalog spec.
+#     For all other kinds (grinding wheels, gloves, hardware, etc.) cutter_definition_id
+#     is null and manufacturer/manufacturer_part_number/description carry identity.
+#   consumable_inventory tracks AGGREGATE stock per unit (one row per stock-tracked
+#     unit per location). tool_life_record continues to track per-run consumption of
+#     cutters against specific jobs/work_orders; the two complement each other.
+#     A future enhancement may emit a stock decrement against consumable_inventory
+#     when tool_life_record.tool_change_required = true for a cutter that maps to
+#     a stock-tracked unit; that linkage is out of scope for this first cut.
+#   Not lifecycle-bearing: consumable_inventory is a register, like cutter_definition
+#     and tracked_document. quantity_on_hand changes continuously through receive/
+#     issue/return events; the entity itself has no states beyond the implicit
+#     low-stock surface driven by min_quantity.
+#
+# Entities: consumable_inventory
+
+entities:
+
+  consumable_inventory:
+    description: >
+      A unit-tracked stock register for non-serialized tooling and shop-floor
+      consumables: cutters and inserts (consumed by machining, sometimes recovered
+      via re-sharpening), grinding wheels, hex sockets and bits, nitrile gloves,
+      brushes, swabs, cleaning supplies, and any hardware tracked by count across
+      departments. Deliberately distinct from material (which models production raw
+      stock consumed 1:1 against a job with heat/lot/DFARS traceability) and from
+      cutter_definition (which is the catalog spec, not a physical stock row).
+      One row per stock-tracked unit per location, carrying quantity_on_hand,
+      reorder thresholds, and a consumption_mode discriminator that captures whether
+      the unit is consumed-and-discarded, consumed-and-recoverable, or
+      issued-and-returned.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 per uuid-discipline.md, minted when the unit is registered
+      description:
+        type: string
+        required: true
+        description: Human-readable description of the stock-tracked unit
+        examples:
+          - "0.500 4-flute carbide bull endmill, 0.030 corner radius"
+          - "6 inch resin-bond grinding wheel, 80 grit, for deburr"
+          - "3/8 inch hex socket, 1/2 inch drive"
+          - "Nitrile glove, large, powder-free"
+          - "Cotton swab, 6 inch, tapered tip"
+      consumable_kind:
+        type: enum
+        required: true
+        values:
+          - Cutter
+          - Insert
+          - GrindingWheel
+          - Socket
+          - Bit
+          - Glove
+          - Brush
+          - Swab
+          - Lubricant
+          - CleaningSupply
+          - Hardware
+          - Other
+        description: >
+          What class of consumable this unit is. Drives where the unit appears in
+          the shop-floor UI (tool crib vs. deburr station vs. assembly bench),
+          which reorder workflow applies, and whether a cutter_definition_id link
+          is expected (Cutter and Insert).
+      cutter_definition_id:
+        type: uuid
+        required: false
+        description: >
+          FK → cutter_definition.id (defined in schemas/tool_room.yaml). Populated
+          when consumable_kind ∈ {Cutter, Insert} to link this stock-tracked unit
+          to its catalog spec. Null for all other kinds.
+      manufacturer:
+        type: string
+        required: false
+        description: Manufacturer name for non-catalog items or as a denormalized convenience
+        examples: ["Kennametal", "Norton", "Snap-on", "Ansell"]
+      manufacturer_part_number:
+        type: string
+        required: false
+        description: Manufacturer catalog or SKU number
+      unit_of_issue:
+        type: enum
+        required: true
+        values:
+          - Each
+          - Box
+          - Pair
+          - Roll
+          - Gallon
+          - Pound
+          - Ounce
+          - Foot
+          - Meter
+        description: >
+          The unit in which quantity_on_hand, min_quantity, and max_quantity are
+          expressed. A box of 100 gloves can be tracked as Box (qty=12) or Each
+          (qty=1200); pick one per unit and stay consistent.
+      inventory_location_id:
+        type: uuid
+        required: false
+        description: >
+          FK → inventory_location.id (defined in schemas/inventory_location.yaml).
+          Where this stock physically lives — tool crib, deburr bench, assembly
+          station, glove dispenser, etc. Null permitted for floating items not
+          yet assigned to a location.
+      quantity_on_hand:
+        type: number
+        required: true
+        description: Current stock count in unit_of_issue
+      min_quantity:
+        type: number
+        required: false
+        description: >
+          Reorder threshold. When quantity_on_hand drops to or below this value,
+          a low-stock surface should fire (reorder request, purchasing alert,
+          dashboard flag). Null means no automatic reorder for this unit.
+      max_quantity:
+        type: number
+        required: false
+        description: >
+          Target maximum stock level. Used by reorder workflows to compute order
+          quantity (max_quantity - quantity_on_hand). Null means no target ceiling.
+      consumption_mode:
+        type: enum
+        required: true
+        values:
+          - ConsumedDiscarded
+          - ConsumedRecoverable
+          - IssuedReturnable
+        description: >
+          Lifecycle discriminator. ConsumedDiscarded: the unit is destroyed in use
+          (gloves, swabs, single-use brushes). ConsumedRecoverable: the unit is
+          consumed by production but may re-enter stock after re-sharpening,
+          inspection, or refurbishment (cutters, inserts, grinding wheels with
+          dressing capacity). IssuedReturnable: the unit is checked out and
+          expected to return at end of job (hex sockets, torque-wrench bits,
+          calibrated hand tools). The mode controls which workflows operate on
+          quantity_on_hand: a ConsumedDiscarded issue is a pure decrement;
+          IssuedReturnable issues pair with returns.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      for_cutter:
+        target: cutter_definition
+        cardinality: many-to-one
+        description: >
+          Catalog spec this stock-tracked unit conforms to; populated when
+          consumable_kind ∈ {Cutter, Insert}. Defined in schemas/tool_room.yaml.
+      stored_at:
+        target: inventory_location
+        cardinality: many-to-one
+        description: >
+          Physical location where this stock lives. Defined in
+          schemas/inventory_location.yaml.

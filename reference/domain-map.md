@@ -197,6 +197,9 @@ ISA-95 defines the model but not the aerospace-specific attributes: heat number 
 **Canonical schemas (Phase 2.F):**
 - `schemas/inventory_location.yaml` — named storage location with ISA-95-grounded type hierarchy; ITAR-segregated flag; hierarchical nesting via parent_location_id; Off_Site type tracks material at outside processors
 
+**Canonical schemas (2026-05-16):**
+- `schemas/consumable_inventory.yaml` — unit-tracked stock register for non-serialized tooling and shop-floor consumables (cutters, inserts, grinding wheels, sockets, bits, PPE, cleaning supplies, hardware). `consumption_mode` enum (ConsumedDiscarded / ConsumedRecoverable / IssuedReturnable) carries lifecycle inline. Deliberately distinct from `material` (production raw stock with heat/lot/DFARS traceability). Cutters and inserts link back to `cutter_definition` (Domain 10) via `cutter_definition_id`. Prose: `extensions/consumable-inventory.md`.
+
 ---
 
 ### 8. Compliance and Governance
@@ -251,6 +254,8 @@ MTConnect CuttingTool asset schema covers tool identity and asset ID but not the
 **Entities:** `cutter_definition`, `holder_definition`, `tool_assembly_definition`, `gauge_definition`, `tool_preset`, `tool_pocket_requirement`, `tool_pocket_assignment`, `tool_room_allocation`, `tool_maintenance_event`, `tool_life_record`
 
 **Note:** `tool_gauge` (the serialized calibrated instrument) and `calibration_record` are in Domain 7 / `schemas/inspection.yaml`. This domain's `gauge_definition` is the catalog entry; `tool_gauge` instances reference it conceptually.
+
+**Note:** Aggregate stock counts of cutters, inserts, grinding wheels, and other consumable tooling are tracked in `consumable_inventory` (Domain 7 / `schemas/consumable_inventory.yaml`). `cutter_definition` carries a one-to-many `tracked_in_inventory` relationship into that register; `tool_life_record` (per-run consumption) and `consumable_inventory` (aggregate on-hand) complement each other.
 
 **Canonical schema:** `schemas/tool_room.yaml`
 

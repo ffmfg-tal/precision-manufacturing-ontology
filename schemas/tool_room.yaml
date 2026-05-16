@@ -53,6 +53,10 @@
 #     asset_part_id for Fixture/Holder assets; tool_gauge_id for Gauge assets.
 #   tool_life_record tracks cutter consumption per job/work order run; it is the primary
 #     lifecycle mechanism for non-serialized consumable cutters.
+#   consumable_inventory (schemas/consumable_inventory.yaml) holds aggregate stock counts
+#     for cutters, inserts, and other unit-tracked shop-floor consumables. tool_life_record
+#     (per-run consumption) and consumable_inventory (aggregate on-hand) complement each
+#     other.
 #
 # Entities: cutter_definition, holder_definition, tool_assembly_definition, gauge_definition,
 #           tool_preset, tool_pocket_requirement, tool_pocket_assignment, tool_room_allocation,
@@ -67,8 +71,9 @@ entities:
       a physical item. Cutters are consumable and not individually serialized by default;
       a single cutter_definition may correspond to many physical cutters consumed over time.
       Cutter consumption and life tracking is handled via tool_life_record. Physical cutter
-      inventory (purchase orders, stock counts) links to cutter_definition via the item
-      master, not via a separate instance table.
+      stock counts (on-hand quantities, reorder thresholds, location) are tracked in
+      consumable_inventory (schemas/consumable_inventory.yaml) with consumable_kind ∈
+      {Cutter, Insert} and cutter_definition_id pointing back here.
     attributes:
       id:
         type: uuid
@@ -131,6 +136,12 @@ entities:
         target: tool_life_record
         cardinality: one-to-many
         description: Cutter consumption and life records for this cutter type
+      tracked_in_inventory:
+        target: consumable_inventory
+        cardinality: one-to-many
+        description: >
+          Physical stock-tracked units of this cutter type — on-hand counts,
+          reorder thresholds, locations. Defined in schemas/consumable_inventory.yaml.
 
   holder_definition:
     description: >
