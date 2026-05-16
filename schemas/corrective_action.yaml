@@ -461,7 +461,7 @@ entities:
       opportunity_description:
         type: string
         required: false
-        description: Optional: if this assessment identifies an opportunity rather than or in addition to a risk (per §8.1.1 risk AND opportunity framing)
+        description: "Optional: if this assessment identifies an opportunity rather than or in addition to a risk (per §8.1.1 risk AND opportunity framing)"
       status:
         type: enum
         required: true

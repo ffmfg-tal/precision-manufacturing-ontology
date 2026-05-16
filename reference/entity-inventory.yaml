@@ -203,6 +203,14 @@ inventory:
     has_schema: schemas/certification_document.yaml  # alias — cert_type: ConflictMineral
     notes: "Alias of certification_document (cert_type: ConflictMineral) per Decision 1.6. conflict_mineral_fields sub-schema within schemas/certification_document.yaml. No standalone schema."
 
+  - name: consumable_inventory
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/consumable_inventory.yaml  # canonical schema (2026-05-16)
+      - extensions/consumable-inventory.md  # prose narrative
+    has_schema: schemas/consumable_inventory.yaml
+    notes: "Unit-tracked stock register for non-serialized tooling and shop-floor consumables: cutters, inserts, grinding wheels, sockets, bits, gloves, brushes, swabs, lubricants, cleaning supplies, hardware. One row per stock-tracked unit per location. consumption_mode discriminator (ConsumedDiscarded | ConsumedRecoverable | IssuedReturnable) carries lifecycle inline; not state-machine-bearing. Deliberately distinct from material (production raw stock with heat/lot/DFARS traceability). When consumable_kind ∈ {Cutter, Insert}, cutter_definition_id links the stock row to schemas/tool_room.yaml. Fills the cutter-stock-tracking gap previously noted on cutter_definition. Schema: schemas/consumable_inventory.yaml (2026-05-16)."
+
   - name: control_plan_item
     archetypes_used_in: none
     existing_definitions:
