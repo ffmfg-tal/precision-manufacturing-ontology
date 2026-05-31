@@ -346,3 +346,76 @@ Rationale:
 **Follow-ups applied:**
 - `entity-inventory.yaml`: `certification_package.notes`, `item.notes` updated.
 - `entity-matrix.md`: `certification_package.composition_rule` → ✅ (nesting confirmed). `item.composition_rule` → ⬜ (removed from canon; N/A). `item.canonical_framing` → 🟡 updated to note ERP-impl only.
+
+---
+
+## Decision 1.10 — Provenance, Verification, and the Design-Ingestion Layer
+
+**Dated:** 2026-05-31
+
+**Question:** How does the ontology model the *epistemic status* of a fact — how it was established, with what confidence, and whether it has been verified — given that an AI-in-the-loop pipeline stores assertions, not ground truth? And how does it model the design→manufacturing extraction step (model + drawing → structured features and requirements) that every existing archetype skips?
+
+This decision resolves four coupled sub-questions:
+- **(a)** Is provenance a top-level entity, a discriminated supertype every fact subclasses, or a cross-cutting value-object (mixin)?
+- **(b)** Is a verification act a domain entity, or just an event-log query (`principal_type = user`)?
+- **(c)** Does the design-ingestion front segment earn new entities (`cad_model`, `derived_view`, `manufacturing_feature`), and do they pass the composition test?
+- **(d)** How does `manufacturing_feature` reconcile with the existing `characteristic.feature_type` field?
+
+**(a) Options — provenance shape:**
+
+- **A** — Cross-cutting **value-object** (`provenance`) embedded on any asserted entity, generalizing the pre-existing inline fields (`characteristic.source`, `characteristic.extraction_confidence`, `measurement_result.source_type`). No new top-level identity.
+- **B** — A heavyweight `assertion` **supertype** every fact subclasses. Forces every relationship in the canon to be retyped through `assertion`.
+- **C** — Leave provenance as scattered per-entity fields, added ad hoc where needed.
+
+**Resolution (a): Option A — value-object/mixin.**
+
+Rationale:
+1. Option B repeats the mistake Decision 1.9 rejected for `item`: introducing a universal supertype degrades semantic precision and forces a retyping cascade. A `quality_flowdown_plan` is not "an assertion"; it *carries* provenance.
+2. Option C is the status quo and is exactly the gap — three different entities already express provenance three different ways. A value-object unifies the shape once and is reused, the way Decision 1.6's discriminated `*_fields` sub-objects are reused.
+3. The value-object embeds cleanly on new entities and is specified as a staged addition on the existing ones (`characteristic`, `measurement_result`, `part_specification`, `operation`) without retyping any relationship.
+
+**(b) Resolution: verification is a distinct domain entity (`verification_event`), not an event-log query.**
+
+Rationale:
+1. The verification act carries domain semantics a generic audit envelope cannot: the `decision`, the `verification_method`, the `corrected_value`, signatory eligibility (`user.roles`), and assertion-supersession lineage. An event-log row records *that* a state changed and *who*; it does not record *the judgment*.
+2. It mirrors the `material_lot` → `certification_document` and `supplier` → `approved_supplier_list_entry` pattern (Decisions 1.3, 1.6): the subject is one entity, the attestation about it is another, with its own lifecycle. A verification is the attestation about an assertion.
+3. It generalizes a loop the canon already runs narrowly — the QE review that elevates a `characteristic` to `key_characteristic` (`schemas/characteristic.yaml`) is a verification act. Making it first-class applies it to every asserted fact.
+4. Immutable after sign-off, mirroring `calibration_record` and `witness_inspection`. For regulated facts the verifier is a `user` (every signature is a person).
+
+**(c) Resolution: yes — `cad_model`, `derived_view`, `manufacturing_feature` are new first-class entities; they pass the composition test via Walk 8.**
+
+Rationale:
+1. The README gate: a change is canon only if it improves a representative part's decomposition. **No existing archetype (A/B/C) or walk (4–7) contains a CAD model, a feature, a derived view, or an extraction step** — every tree starts at `[Part Specification]` and assumes routing and characteristics already exist. The new entities are the *unmodeled front segment of every archetype*, not a filing-system change.
+2. `reference/composition-archetypes.md` **Walk 8 — Design Ingestion / CAM Programming** walks the segment end-to-end (`cad_model` + `part_specification` → `derived_view`s → `manufacturing_feature` + `characteristic` with provenance → `verification_event` → routing authoring), demonstrating each entity earns its place and exercising the provenance/verification substrate.
+3. `cad_model` is distinct from `part_specification` (governing document vs parsed geometric-truth artifact); the distinction is load-bearing because `cad_model` is the grounding source for `Computed` (exact) assertions — the hallucination anchor that keeps AI feature recognition honest.
+4. `brep_face_refs` are validated coded strings, not entities (per Decision 1.7 governance — they have no queryable facet beyond their value, local to the model's topology).
+
+**(d) Resolution: `manufacturing_feature` is the grounded entity; `characteristic.feature_type` stays an informal classifier. One concept, two altitudes.**
+
+Rationale:
+1. `characteristic.feature_type` (bore, OD, face, thread, chamfer) is a loose string describing what a drawing callout is *about*. `manufacturing_feature` is the geometry-grounded object (B-rep faces, dimensions, access direction). They are not two competing "feature" entities.
+2. A `characteristic` optionally FKs to the `manufacturing_feature` it constrains via the staged `characteristic.manufacturing_feature_id`. `feature_type` is retained unchanged for back-compat and for callouts not yet grounded.
+
+**Concrete shape:**
+- New value-object: `schemas/provenance.yaml` (mixin; no `id`).
+- New entities: `schemas/cad_model.yaml`, `schemas/derived_view.yaml`, `schemas/manufacturing_feature.yaml`, `schemas/verification_event.yaml`.
+- `provenance.assertion_method` ∈ `{Measured, Computed, AI_Inferred, Human_Authored, Standard_Parsed, Legacy_Imported}`; **a feature's as-modeled geometric dimensions must be `Computed` or `Measured`, never `AI_Inferred`** (the kernel anchor). A **characteristic's requirement values** (tolerances, GD&T, datums) are *not* present in geometry and therefore must be `AI_Inferred` (from the controlling drawing), `Standard_Parsed`, or `Human_Authored` — each gated by a `verification_event`. The two meet at the nominal, which is cross-checked feature-vs-drawing when a `cad_model` exists.
+- `provenance.verification_state` ∈ `{Proposed, Under_Review, Confirmed, Rejected, Superseded}` — projection of `verification_event` records.
+
+**Impact:**
+- New schema files (above) — net-new, no warp-core codegen-drift risk (warp-core regenerates only entities in its own `ENTITIES` list).
+- **Staged field additions** (apply in lockstep with warp-core codegen regeneration; see `extensions/provenance-and-verification.md`):
+  - `schemas/characteristic.yaml`: add `manufacturing_feature_id` (FK), `provenance` (object).
+  - `schemas/part.yaml` (`part_specification`): add `controlling_authority` (enum `Drawing | Model | MBD_Dataset`), `cad_model_id` (FK).
+  - `schemas/measurement_result.yaml`: add `manufacturing_feature_id` (FK), `provenance` (object).
+  - `schemas/routing.yaml` (`operation`): add `produces_feature_ids` (uuid[]).
+- `standards/step-ap242.md`: add the semantic-vs-graphical PMI and controlling-drawing nuance.
+- Entity count 128 → **132** (the four new first-class entities; `provenance` is a value-object, not counted).
+
+**Follow-ups:**
+- `extensions/provenance-and-verification.md`: authored (the cross-cutting discipline doc).
+- `reference/composition-archetypes.md`: Walk 8 added.
+- `INDEX.md`: add `cad_model`, `derived_view`, `manufacturing_feature`, `provenance`, `verification_event`.
+- `reference/domain-map.md`: add the cross-cutting Provenance & Verification layer.
+- `reference/entity-inventory.yaml` and `reference/relationship-graph.yaml`: add the new entities and edges. NOTE: these two files are already behind the README's 128 ("pending full update" — currently 117 entries / 355 edges). This decision adds the four new entities cleanly; it does not attempt to clear the pre-existing 117→128 backlog, which remains tracked in `residual-gaps.md`.
+- `README.md`: entity count and status/changelog; four-layer thesis gains the epistemic substrate note.

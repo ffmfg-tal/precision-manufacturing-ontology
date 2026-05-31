@@ -26,7 +26,9 @@
 #     or genuinely have no schema (deferred to a future cluster).
 #   - notes: interpretation decisions, alias resolutions, phase-of-authoring notes.
 #
-# Entries sorted alphabetically by name.
+# Entries sorted alphabetically by name (the 2026-05-31 provenance/design-ingestion block is
+#   appended at the end rather than interleaved; this file's pre-existing 117→128 backlog is
+#   unchanged — see README Status and reference/residual-gaps.md).
 # Entity count: 126 (82 original + 29 Phase 2 additions (process engineering, tool room,
 #   packaging, change management, assembly hardware, assembly, inspection extensions) +
 #   6 InspectAI-derived additions: characteristic, measurement_result, fmea_item,
@@ -1152,3 +1154,55 @@ inventory:
       - extensions/ip-boundary.md  # X12 856 transaction boundaries
     has_schema: null
     notes: "X12 EDI 856 Advance Shipment Notice. External-standard artifact (ASC X12). the manufacturer defines the REF*ZZ UUID-carrying extension in uuid-discipline.md, not the full transaction schema."
+
+  # ============================================================
+  # Provenance & Verification + Design Ingestion (2026-05-31, Decision 1.10)
+  # Cross-cutting epistemic substrate + the model→features front segment.
+  # Exercised by composition-archetypes.md Walk 8 (Design Ingestion / CAM Programming).
+  # ============================================================
+
+  - name: cad_model
+    archetypes_used_in: [Walk8]
+    existing_definitions:
+      - schemas/cad_model.yaml  # canonical schema (2026-05-31)
+      - extensions/provenance-and-verification.md  # Design Ingestion section
+      - reference/composition-archetypes.md  # Walk 8: [CAD Model] node
+      - reference/domain-map.md  # Design Ingestion & the Epistemic Substrate
+    has_schema: schemas/cad_model.yaml
+    notes: "Parsed, kernel-queryable geometric-truth artifact (B-rep) for a part_specification revision. Distinct from part_specification (the governing-document record) per Decision 1.10. Grounding source for Computed (exact) assertions — the hallucination anchor. Typically reconstructed by OpenCASCADE."
+
+  - name: derived_view
+    archetypes_used_in: [Walk8]
+    existing_definitions:
+      - schemas/derived_view.yaml  # canonical schema (2026-05-31)
+      - extensions/provenance-and-verification.md  # Design Ingestion section
+      - reference/composition-archetypes.md  # Walk 8: [Derived View] nodes (ISO, Section A-A, Top)
+    has_schema: schemas/derived_view.yaml
+    notes: "Rendered/projected view generated FROM a cad_model. Multimodal grounding artifact an AI_Inferred assertion cites in provenance.source_artifact_refs. Section/detail views matter most (occluded features). Generated, not authored."
+
+  - name: manufacturing_feature
+    archetypes_used_in: [Walk8]
+    existing_definitions:
+      - schemas/manufacturing_feature.yaml  # canonical schema (2026-05-31)
+      - extensions/provenance-and-verification.md  # Design Ingestion section
+      - reference/composition-archetypes.md  # Walk 8: [Manufacturing Feature] MF-01/02/03
+    has_schema: schemas/manufacturing_feature.yaml
+    notes: "Geometry-grounded feature (B-rep faces via brep_face_refs) that operations realize and characteristics constrain. The bridge entity the archetypes A/B/C previously skipped. Grounded counterpart of the loose characteristic.feature_type string — one concept, two altitudes (Decision 1.10). Carries mandatory provenance; verified via verification_event before driving routing authoring."
+
+  - name: verification_event
+    archetypes_used_in: [Walk8]
+    existing_definitions:
+      - schemas/verification_event.yaml  # canonical schema (2026-05-31)
+      - extensions/provenance-and-verification.md  # Verification section
+      - reference/composition-archetypes.md  # Walk 8: VE-01 (Confirmed), VE-02 (Corrected)
+    has_schema: schemas/verification_event.yaml
+    notes: "First-class DOMAIN entity recording a human (or agent) act of confirming/correcting/rejecting an assertion. NOT the warp-core infra event-log row (it generates events; it is not one). Immutable after sign-off, like calibration_record / witness_inspection. For regulated facts the verifier is a user (every signature is a person). Generalizes the existing QE-review-elevates-to-key_characteristic loop. The auditable seam where human accountability attaches to AI work."
+
+  - name: provenance
+    archetypes_used_in: [Walk8]
+    existing_definitions:
+      - schemas/provenance.yaml  # value-object schema (2026-05-31)
+      - extensions/provenance-and-verification.md  # The Shape of an Assertion
+      - reference/composition-archetypes.md  # Walk 8: [Provenance] embedded on features/characteristics
+    has_schema: schemas/provenance.yaml  # value-object / mixin — embedded, no standalone identity
+    notes: "Cross-cutting VALUE-OBJECT (mixin), not a top-level identified entity — NOT counted in the entity total. Embedded on any asserted entity. Generalizes the pre-existing inline fields characteristic.source / extraction_confidence and measurement_result.source_type. assertion_method ∈ {Measured, Computed, AI_Inferred, Human_Authored, Standard_Parsed, Legacy_Imported}; a feature's geometric dimensions must be Computed or Measured (never AI_Inferred), while a characteristic's requirements (tolerances/GD&T/datums) are AI_Inferred from the drawing and verified. Decision 1.10."

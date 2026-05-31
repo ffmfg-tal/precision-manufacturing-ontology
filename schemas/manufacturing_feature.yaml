@@ -1,0 +1,135 @@
+# schemas/manufacturing_feature.yaml
+#
+# Layer-1 coverage: PARTIAL. STEP AP242 carries the geometry (B-rep faces, edges) and STEP
+#   AP238 (STEP-NC) models machining features and operations for a CNC controller. Neither
+#   defines a manufacturer-layer record for a RECOGNIZED feature with its provenance, its
+#   grounding in specific B-rep faces, and its links to the operations that make it and the
+#   characteristics that constrain it. This entity is the bridge the digital thread is missing
+#   at its front end.
+#
+# Prose source: extensions/provenance-and-verification.md (Design Ingestion),
+#               reference/composition-archetypes.md (Walk 8)
+#
+# Architectural decisions:
+#   Decision 1.10: manufacturing_feature is the geometry-grounded entity that the loose
+#                  characteristic.feature_type string field informally names. ONE feature concept,
+#                  two altitudes: characteristic.feature_type stays an informal classifier;
+#                  manufacturing_feature is the grounded entity a characteristic optionally FKs to
+#                  (characteristic.manufacturing_feature_id — a STAGED field addition, see
+#                  extensions/provenance-and-verification.md). This entity is the bridge that today's
+#                  archetypes skip: every archetype tree starts at the drawing and assumes routing
+#                  and characteristics already exist; manufacturing_feature models WHAT operations
+#                  act on and characteristics constrain, recovered from the cad_model + drawing.
+#
+# Entities: manufacturing_feature
+
+entities:
+
+  manufacturing_feature:
+    description: >
+      A recognized manufacturing feature on a part — a hole, pocket, slot, boss, face, chamfer,
+      fillet, thread, counterbore, groove, profile, or freeform surface — grounded in specific
+      B-rep faces of a cad_model. It is the object a CAM operation produces and an inspection
+      characteristic constrains. Features are typically AI_Inferred (or kernel-recognized) from
+      the cad_model and its derived_views, carry a provenance value-object, and are confirmed or
+      corrected by a verification_event before they drive routing authoring. The recognized feature
+      set is the structured manufacturing definition extracted from the design — the front of the
+      digital thread that previously lived only in a programmer's head.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the feature is recognized/created
+      part_id:
+        type: uuid
+        required: true
+        description: FK → part.id (or assembly.id) the feature belongs to
+      cad_model_id:
+        type: uuid
+        required: true
+        description: FK → cad_model.id — the geometric-truth model this feature is grounded in
+      feature_class:
+        type: enum
+        required: true
+        values: [Hole, Counterbore, Countersink, Pocket, Slot, Boss, Face, Plane, Chamfer, Fillet, Thread, Groove, Profile, Step, Bore, Surface_Freeform, Other]
+        description: >
+          The manufacturing-feature classification. This is the grounded, geometry-backed
+          counterpart to the informal characteristic.feature_type string (bore, OD, face, …).
+      brep_face_refs:
+        type: string[]
+        required: false
+        description: >
+          Coded references to the B-rep faces (and/or edges) of cad_model that constitute this
+          feature — the geometry grounding. Validated coded strings, not entities (per Decision 1.7
+          governance). Their meaning is local to the cad_model's reconstructed topology.
+        examples: [["face:14", "face:15"], ["face:203", "edge:551"]]
+      nominal_dimensions:
+        type: string
+        required: false
+        description: >
+          Key nominal dimensions of the feature, Computed from the B-rep (exact). Free-form but
+          structured by convention (diameter, depth, width, length, angle as applicable).
+        examples: ["Ø12.70 thru", "Ø6.35 x 10.0 deep, flat bottom", "25.0 x 12.0 x 8.0 pocket, R3 corners"]
+      axis_vector:
+        type: string
+        required: false
+        description: Feature axis or normal direction in model coordinates — informs setup and tool-access direction
+        examples: ["+Z", "(0, 0, 1)", "(0.707, 0, 0.707)"]
+      access_direction:
+        type: string
+        required: false
+        description: Tool-access direction(s) for machining this feature — drives setup count and fixturing
+        examples: ["+Z (single setup)", "+Z and -Z (two setups)"]
+      recognized_by:
+        type: enum
+        required: true
+        values: [AI_Inferred, Kernel_AFR, Human_Authored, CAM_Imported]
+        description: >
+          How the feature was recognized. AI_Inferred = vision/reasoning model over cad_model +
+          derived_views. Kernel_AFR = deterministic automated feature recognition over the B-rep.
+          Human_Authored = a programmer defined it. CAM_Imported = read back from a CAM project.
+          (This mirrors provenance.assertion_method; it is surfaced here as a first-class field
+          because feature recognition is the canonical AI-in-the-loop step.)
+      provenance:
+        type: object
+        required: true
+        description: >
+          Embedded provenance value-object (schemas/provenance.yaml). For AI_Inferred features:
+          assertion_method = AI_Inferred, confidence required, source_artifact_refs cites the
+          cad_model and the derived_view(s) reasoned over, model_identifier stamps the model
+          version. verification_state starts Proposed and advances via verification_event records.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      on_part:
+        target: part
+        cardinality: many-to-one
+      grounded_in:
+        target: cad_model
+        cardinality: many-to-one
+        description: The model whose B-rep faces (brep_face_refs) constitute this feature
+      realized_by:
+        target: operation
+        cardinality: one-to-many
+        description: >
+          The routing operation(s) that produce this feature (e.g., spot-drill + drill + ream for a
+          precision hole). Defined in schemas/routing.yaml. The FK from operation back to feature
+          (operation.produces_feature_ids) is a STAGED field addition — see
+          extensions/provenance-and-verification.md.
+      constrained_by:
+        target: characteristic
+        cardinality: one-to-many
+        description: >
+          The drawing characteristics (GD&T, tolerances, surface finish) that apply to this feature.
+          The FK characteristic.manufacturing_feature_id is a STAGED field addition. Defined in
+          schemas/characteristic.yaml.
+      inspected_by:
+        target: measurement_result
+        cardinality: one-to-many
+        description: Measurement results taken on this feature. Defined in schemas/measurement_result.yaml.
+      verified_by:
+        target: verification_event
+        cardinality: one-to-many
+        description: Human/agent verification acts confirming or correcting this feature. Defined in schemas/verification_event.yaml.

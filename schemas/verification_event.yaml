@@ -1,0 +1,126 @@
+# schemas/verification_event.yaml
+#
+# Layer-1 coverage: NONE. No Layer-1 standard models the human (or agent) act of verifying
+#   an asserted fact. AS9102 captures FAI sign-off and QIF captures measurement results, but
+#   neither models "a named principal reviewed this AI-inferred feature and confirmed/corrected
+#   it, on this date, with this rationale." Pure Layer-2 contribution.
+#
+# Prose source: extensions/provenance-and-verification.md
+#
+# Architectural decisions:
+#   Decision 1.10: verification_event is a first-class DOMAIN entity with its own lifecycle and
+#                  AS9100-grade sign-off — NOT the warp-core infra event-log row. It generates
+#                  infra events when committed; it does not equal them. The reason it is distinct
+#                  from a generic event-log query (principal_type = user) is that it carries domain
+#                  semantics the envelope cannot: the decision, the verification method, the
+#                  corrected value, signatory eligibility, and assertion-supersession lineage.
+#                  Immutable after sign-off, mirroring calibration_record and witness_inspection.
+#                  This is the permanent, auditable seam where human accountability attaches to
+#                  AI-produced work — the technical embodiment of the human-supported-AI end state.
+#
+# Entities: verification_event
+
+entities:
+
+  verification_event:
+    description: >
+      A single verification act on an asserted fact (a manufacturing_feature, characteristic,
+      material_identification, routing, or any entity carrying a provenance value-object). One
+      record per act. Records who verified, by what method, what they decided, and — when they
+      corrected the assertion — the prior and corrected values. For regulated facts the verifier
+      is a person (every signature is a person, every time); agents may pre-screen and propose,
+      but the accountable confirmation on regulated work is human. Immutable after sign-off.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the verification act is recorded
+      subject_type:
+        type: enum
+        required: true
+        values: [manufacturing_feature, characteristic, material_identification, measurement_result, routing, operation, cad_model, other]
+        description: >
+          Discriminator for the polymorphic subject_id FK — the kind of asserted entity being
+          verified. Extensible; `other` covers any provenance-bearing entity not yet enumerated.
+      subject_id:
+        type: uuid
+        required: true
+        description: FK → the asserted entity being verified (type given by subject_type)
+      decision:
+        type: enum
+        required: true
+        values: [Confirmed, Corrected, Rejected, Escalated, Superseded]
+        description: >
+          Confirmed = the assertion stands as-is. Corrected = the assertion was wrong in detail
+          and corrected_value records the fix (verification_state → Confirmed on the corrected
+          fact). Rejected = the assertion is invalid and not in force. Escalated = referred to a
+          higher authority (e.g., DER, customer) without a terminal decision yet. Superseded =
+          replaced by a newer assertion referenced via superseded_by.
+      verifier_id:
+        type: uuid
+        required: false
+        description: >
+          FK → user.id — the principal who performed the verification. REQUIRED for regulated
+          facts (key characteristics, FAI characteristics, ITAR-controlled features); a guard
+          enforces user.roles eligibility (e.g., quality_engineer, programmer) for the subject type.
+          May be an agent principal only for non-regulated pre-screening decisions.
+      verifier_principal_type:
+        type: enum
+        required: true
+        values: [user, agent]
+        description: Whether a person or an agent performed this verification act
+      verification_method:
+        type: enum
+        required: true
+        values: [Visual_Review, Cross_Check_Source, Independent_Remeasure, Second_Person, Agent_Cross_Model]
+        description: >
+          How verification was performed. Cross_Check_Source = compared the assertion against the
+          controlling artifact (e.g., the drawing for a GD&T read). Independent_Remeasure = took a
+          fresh measurement. Second_Person = independent human re-review. Agent_Cross_Model = a
+          different model independently re-derived the assertion (used for pre-screening, not as the
+          accountable signature on regulated work).
+      prior_value:
+        type: string
+        required: false
+        description: Snapshot of the asserted value as it stood before this act (for Corrected/Superseded)
+      corrected_value:
+        type: string
+        required: false
+        description: The corrected value, when decision = Corrected
+      confidence_after:
+        type: number
+        required: false
+        description: >
+          0.0–1.0 confidence in the fact after this verification act. A human Confirmed decision
+          on a regulated fact sets this to 1.0; an agent pre-screen may set an intermediate value.
+      rationale:
+        type: string
+        required: false
+        description: Free-text reason for the decision — the audit-defensible "why"
+        examples: ["Bore Ø matches drawing balloon 12; position datum scheme A|B|C confirmed against Section A-A", "AI read thread as 1/4-20; drawing calls 1/4-28 — corrected"]
+      verified_at:
+        type: datetime
+        required: true
+        description: ISO 8601 UTC timestamp of the verification act
+      superseded_by_id:
+        type: uuid
+        required: false
+        description: FK → verification_event.id — when decision = Superseded, the act that replaced this one
+
+    relationships:
+      verifies_feature:
+        target: manufacturing_feature
+        cardinality: many-to-one
+        description: When subject_type = manufacturing_feature
+      verifies_characteristic:
+        target: characteristic
+        cardinality: many-to-one
+        description: When subject_type = characteristic
+      performed_by:
+        target: user
+        cardinality: many-to-one
+        description: The verifying principal when verifier_principal_type = user
+      supersedes:
+        target: verification_event
+        cardinality: one-to-one
+        description: Prior verification act this one replaces (assertion-supersession lineage)

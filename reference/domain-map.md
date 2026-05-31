@@ -20,6 +20,10 @@ LAYER 2: CM DATA MODEL
   - Quality flowdowns: QA-001 through QA-017; AS9102 FAI three-form structure; NCR/MRB
   - Supplier approval hierarchy: customer-directed, ASL, Nadcap, internal qualified
   - UUID discipline: persistent artifact identity across all Layer 1 format boundaries
+  - Provenance & verification: every asserted fact carries method, confidence, source, and
+    human-verification state — the epistemic substrate that makes AI-in-the-loop work auditable
+  - Design ingestion: cad_model, derived_view, manufacturing_feature — the model+drawing →
+    structured-feature extraction at the front of the thread
 
 LAYER 3: DATA LAYER
   The operational system of record that implements the Layer 2 entity model.
@@ -338,6 +342,31 @@ Derived from a review of **InspectAI** (Lino's quality and FAI app; React 19, Cl
 **Schema updates:** `inspection_event` gained `setup_number` and `produces_measurement_results` relationship (pmi_events description corrected); `key_characteristic` gained `characteristic_id` FK; `first_article_inspection` gained `ppap_level` and `ppap_submission_id`; `inspection_plan` gained `fmea_document_id` and `control_plan_document_id`.
 
 **Calibration traceability gap noted:** InspectAI's `gage_inventory` table tracks current gauge state but has no per-event calibration record. AS9100 §7.1.5.2 requires immutable per-event evidence. The ontology's `calibration_record` (`schemas/inspection.yaml`) models this correctly; InspectAI will need to adopt this pattern for AS9100 compliance.
+
+---
+
+### Design Ingestion & the Epistemic Substrate (Provenance & Verification, 2026-05-31)
+
+**What this covers:**
+Two coupled, cross-cutting additions. **Design ingestion** is the front of the digital thread — the manufacturing-engineering / CAM-programming step where a customer's 3D model and drawing become a structured manufacturing definition (features + requirements + process plan). **The epistemic substrate** is the cross-cutting discipline that records, for every asserted fact, *how we know it*: by what method, with what confidence, from what source, and whether a human has verified it.
+
+**Why it's foundational, not a domain:**
+Like UUID discipline, this is not one domain among twelve — it cross-cuts all of them. Every extracted characteristic, every recognized feature, every AI-drafted routing is an *assertion*, not ground truth. In a regulated shop an unverified AI-inferred tolerance is a candidate, not a fact. The substrate is what records the difference and is therefore the precondition for putting AI in the loop safely.
+
+**Layer-1 gap:**
+STEP AP242 carries authored geometry and PMI but no assertion metadata — nothing about who asserted a fact, by what method, or with what confidence. STEP AP238 models machining features for a controller but not recognized features with provenance and grounding. QIF carries measurement results but no cross-cutting trust model. No standard models the human act of verifying an AI assertion. All pure Layer-2 contributions.
+
+**manufacturer extension:**
+`extensions/provenance-and-verification.md` defines the discipline; `reference/composition-archetypes.md` Walk 8 demonstrates it end-to-end. Entities:
+- `provenance` (`schemas/provenance.yaml`) — cross-cutting value-object (mixin) embedded on any asserted entity: `assertion_method` (Measured | Computed | AI_Inferred | Human_Authored | Standard_Parsed | Legacy_Imported), `confidence`, `source_artifact_refs[]`, asserting principal, `verification_state`. Generalizes the pre-existing inline fields `characteristic.source` / `extraction_confidence` and `measurement_result.source_type`.
+- `verification_event` (`schemas/verification_event.yaml`) — first-class domain entity recording a human (or agent) act of confirming/correcting/rejecting an assertion; immutable after sign-off; the auditable seam where accountability attaches. Distinct from the warp-core infra event-log row (it generates events; it is not one).
+- `cad_model` (`schemas/cad_model.yaml`) — the parsed, kernel-queryable geometric-truth artifact (B-rep availability, semantic-PMI presence, units, hash) for a part_specification revision; distinct from the governing-document record; the grounding source for `Computed` (exact) assertions — the hallucination anchor.
+- `derived_view` (`schemas/derived_view.yaml`) — rendered/projected views generated from a cad_model; multimodal grounding for AI feature recognition.
+- `manufacturing_feature` (`schemas/manufacturing_feature.yaml`) — the geometry-grounded feature (B-rep faces) that operations realize and characteristics constrain; the bridge entity the archetypes previously skipped. Reconciles with the loose `characteristic.feature_type` (one concept, two altitudes — Decision 1.10).
+
+**Core rule:** a feature's as-modeled geometric dimensions are `Computed` or `Measured`, never `AI_Inferred` — the geometry kernel (e.g., OpenCASCADE) measures, the model interprets. A characteristic's *requirements* (tolerances, GD&T, datums) are not present in geometry and are correctly `AI_Inferred` from the controlling drawing, gated by a `verification_event`. See `reference/taxonomic-decisions.md` Decision 1.10.
+
+**Staged field additions** (applied in lockstep with implementation codegen; see the extension doc): `characteristic.manufacturing_feature_id` + `provenance`; `part_specification.controlling_authority` + `cad_model_id`; `measurement_result.manufacturing_feature_id` + `provenance`; `operation.produces_feature_ids[]`.
 
 ---
 

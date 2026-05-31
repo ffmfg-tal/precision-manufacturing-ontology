@@ -1,0 +1,130 @@
+# schemas/cad_model.yaml
+#
+# Layer-1 coverage: PARTIAL. STEP AP242 (ISO 10303-242) IS the interchange format for the
+#   3D solid model and its embedded PMI. It defines the file contents; it does NOT define a
+#   manufacturer-layer record for the model as a parsed, kernel-queryable artifact with
+#   reconstruction status, B-rep availability, semantic-PMI presence, and a content hash —
+#   the facts a manufacturing-engineering pipeline needs to decide what it can trust.
+#
+# Prose source: extensions/provenance-and-verification.md (Design Ingestion),
+#               reference/composition-archetypes.md (Walk 8)
+#
+# Architectural decisions:
+#   Decision 1.10: cad_model is DISTINCT from part_specification. part_specification is the
+#                  governing-document record (drawing number, revision, file refs, distribution
+#                  statement). cad_model is the parsed geometric-truth artifact: the reconstructed
+#                  B-rep a geometry kernel (e.g., OpenCASCADE) produced from the STEP/native file,
+#                  with the properties that decide trust. It is the grounding source for every
+#                  Computed assertion (exact dimensions) and the visual basis (via derived_view)
+#                  for AI_Inferred assertions. Distinct lifecycle, format, and geometry payload.
+#
+# Entities: cad_model
+
+entities:
+
+  cad_model:
+    description: >
+      A 3D solid model for a part_specification revision — the geometric ground truth from which
+      exact dimensions are computed and features are recognized. Typically reconstructed into a
+      boundary representation (B-rep) by a geometry kernel from a STEP file or native CAD export.
+      The cad_model is the anchor that keeps an AI-in-the-loop pipeline honest: dimensional facts
+      are Computed off this model (assertion_method = Computed), not eyeballed from a render. One
+      part_specification revision may have one authoritative cad_model; superseded models are
+      retained as history.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the model is ingested and reconstructed
+      part_specification_id:
+        type: uuid
+        required: true
+        description: FK → part_specification.id — the drawing revision this model realizes
+      part_id:
+        type: uuid
+        required: false
+        description: FK → part.id (or assembly.id) the model represents
+      model_format:
+        type: enum
+        required: true
+        values: [STEP_AP203, STEP_AP214, STEP_AP242, Parasolid, ACIS, Native_3D, IGES, Mesh_Only]
+        description: >
+          The format the model arrived in. STEP_AP242 is the modern MBD-capable interchange flavor
+          (may carry semantic PMI). Mesh_Only means tessellation with no exact surfaces — no B-rep,
+          so no Computed dimensions are possible from it.
+      received_from:
+        type: enum
+        required: true
+        values: [Customer, Internal_CAM, Reconstructed_From_Drawing]
+        description: Origin of the model — customer-delivered, authored in-house, or reverse-built from a 2D drawing
+      brep_available:
+        type: boolean
+        required: true
+        description: >
+          True if a watertight boundary representation (exact surfaces and topology) was
+          reconstructed. Gates whether Computed dimensional assertions can be made. False for
+          mesh-only or failed reconstructions.
+      kernel_reconstructed:
+        type: boolean
+        required: true
+        description: True if a geometry kernel successfully parsed the file into queryable topology
+      source_kernel:
+        type: string
+        required: false
+        description: The geometry kernel that parsed/reconstructed the model
+        examples: ["OpenCASCADE 7.8", "Parasolid 35.1"]
+      semantic_pmi_present:
+        type: boolean
+        required: true
+        description: >
+          True if the model carries machine-readable semantic PMI (GD&T as structured data, not
+          just graphical annotation). When true, Standard_Parsed assertions are possible — but
+          treated as ONE corroborating source, not the controlling authority (the drawing governs
+          unless part_specification.controlling_authority says otherwise). Frequently false even
+          on AP242 files. See extensions/provenance-and-verification.md §PMI.
+      units:
+        type: enum
+        required: false
+        values: [mm, in]
+        description: Model units as reconstructed (recorded explicitly; mismatches are a common defect)
+      bounding_box:
+        type: string
+        required: false
+        description: Axis-aligned bounding box "Lx x Ly x Lz" in model units — quick stock-size estimate
+        examples: ["152.4 x 88.9 x 25.4 mm", "6.0 x 3.5 x 1.0 in"]
+      content_hash:
+        type: string
+        required: false
+        description: SHA-256 of the source file bytes — detects whether the model changed between revisions or re-sends
+      file_ref:
+        type: string
+        required: false
+        description: Path or URL to the stored model file (ITAR-controlled storage when applicable)
+        examples: ["models/7832-001-RevC.stp", "s3://ffm-models/itar/7832-001-RevC.stp"]
+      provenance:
+        type: object
+        required: false
+        description: >
+          Embedded provenance value-object (schemas/provenance.yaml). For a customer-delivered model
+          this is typically assertion_method = Human_Authored (by the customer) / Standard_Parsed
+          (on ingest). For a reconstructed model, assertion_method = Computed with the kernel as the
+          asserting principal.
+
+    relationships:
+      models_specification:
+        target: part_specification
+        cardinality: many-to-one
+        description: The drawing revision this model realizes
+      of_part:
+        target: part
+        cardinality: many-to-one
+      has_views:
+        target: derived_view
+        cardinality: one-to-many
+        description: Rendered/projected views generated from this model. Defined in schemas/derived_view.yaml.
+      grounds_features:
+        target: manufacturing_feature
+        cardinality: one-to-many
+        description: >
+          Manufacturing features recognized on this model, each grounded in specific B-rep faces.
+          Defined in schemas/manufacturing_feature.yaml.

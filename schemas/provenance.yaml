@@ -1,0 +1,123 @@
+# schemas/provenance.yaml
+#
+# Layer-1 coverage: NONE. No Layer-1 standard models the epistemic status of a fact —
+#   who asserted it, by what method, with what confidence, and whether a human has
+#   verified it. STEP AP242 carries authored geometry and PMI but no assertion metadata;
+#   QIF carries measurement results but no cross-cutting provenance model. This is a
+#   pure Layer-2 (manufacturer) contribution.
+#
+# Prose source: extensions/provenance-and-verification.md
+#
+# Architectural decisions:
+#   Decision 1.10: provenance is a cross-cutting VALUE-OBJECT (mixin), not a top-level
+#                  entity and not a per-entity bag of ad-hoc fields. It is embedded on any
+#                  entity created by extraction, inference, or measurement. It generalizes
+#                  the pre-existing inline fields characteristic.source /
+#                  characteristic.extraction_confidence and measurement_result.source_type,
+#                  which are retained as the legacy inline form. Verification *acts* are
+#                  recorded separately as verification_event records (own lifecycle, AS9100
+#                  sign-off); provenance.verification_state is the cached projection of those.
+#
+# Note on identity: provenance has NO `id` of its own. It is an embedded value-object,
+#   addressed through its owning entity (e.g., manufacturing_feature.provenance). It is
+#   listed here as a schema so the shape is authored once and reused everywhere.
+#
+# Entities: provenance (value-object / mixin)
+
+kind: value_object
+
+entities:
+
+  provenance:
+    description: >
+      The epistemic stamp on an asserted fact: how it came to be known, from what source,
+      with what confidence, by which principal, and where it stands in verification. Every
+      entity whose content is extracted, inferred, computed, or measured (rather than being
+      a primitive of record) SHOULD carry a provenance value-object. It is the substrate
+      that lets an AI-in-the-loop manufacturing system stay auditable and certifiable: an
+      unverified AI-inferred tolerance is a candidate, not a fact, and provenance is what
+      records the difference.
+    attributes:
+      assertion_method:
+        type: enum
+        required: true
+        values: [Measured, Computed, AI_Inferred, Human_Authored, Standard_Parsed, Legacy_Imported]
+        description: >
+          How the fact was established.
+          Measured = physical metrology (CMM, XRF/PMI, hand gauge) — exact within instrument tolerance.
+          Computed = deterministic derivation from exact geometry (e.g., a feature's as-modeled
+          dimension read off the reconstructed B-rep via a geometry kernel such as OpenCASCADE) — exact.
+          A FEATURE's geometric dimensions must be Computed or Measured, NEVER AI_Inferred: the kernel
+          is the hallucination anchor for sizes the geometry already knows. (Requirements — tolerances,
+          GD&T, datum schemes — are NOT present in geometry and are NOT Computable; see AI_Inferred.)
+          AI_Inferred = model judgment (feature recognition, GD&T/tolerance read from a drawing image,
+          process intent) — probabilistic; confidence is required. This is the ONLY available method for
+          a CHARACTERISTIC's requirement values (tolerances, GD&T, datums), which the geometry does not
+          carry; such facts are AI_Inferred from the controlling drawing (or Standard_Parsed / Human_Authored)
+          and must carry a verification_event.
+          Human_Authored = a person entered or authored it directly.
+          Standard_Parsed = decoded from a structured standard (e.g., AP242 semantic PMI) — one source
+          among several, often unreliable (see extensions/provenance-and-verification.md §PMI).
+          Legacy_Imported = migrated from a prior system without finer provenance.
+      confidence:
+        type: number
+        required: false
+        description: >
+          0.0–1.0 confidence score. REQUIRED when assertion_method = AI_Inferred. For Measured,
+          Computed, and Human_Authored facts confidence is implicitly 1.0 and may be omitted.
+          Scores below a configurable threshold should route the fact to a verification_event
+          (human review) before it is used downstream.
+      source_artifact_refs:
+        type: string[]
+        required: false
+        description: >
+          Coded references to the artifact(s) that ground this assertion, each as
+          "<entity_type>:<uuid>". The grounding artifacts an assertion can cite include
+          cad_model, derived_view, part_specification, certification_document, inspection_event,
+          and pmi_event. A Computed dimension cites the cad_model it was measured from; an
+          AI_Inferred feature cites the cad_model plus the derived_view(s) the model "saw".
+        examples: [["cad_model:a3f7c2d1-8b4e-4a2f-9e1c-0d6b5a3f8c91", "derived_view:1b2c3d4e-..."], ["part_specification:9e1c0d6b-..."]]
+      asserted_by_principal_type:
+        type: enum
+        required: true
+        values: [user, agent, system]
+        description: >
+          The kind of principal that made the assertion. Mirrors warp-core's
+          events.principal_type (user | agent | system_sync) so provenance and the
+          implementation audit log agree on who acted.
+      asserted_by_principal_id:
+        type: string
+        required: true
+        description: Principal identifier — user UUID, agent name, or system job name
+        examples: ["8b4e4a2f-9e1c-...", "cam-feature-agent", "fulcrum-sync"]
+      model_identifier:
+        type: string
+        required: false
+        description: >
+          For AI_Inferred assertions: the model and version that produced the assertion —
+          the "version stamp" required by the platform's agent provenance discipline. Lets a
+          later audit reproduce or attribute a decision to a specific model revision.
+        examples: ["claude-opus-4-8", "inspectai-extractor-v0.8.2"]
+      asserted_at:
+        type: datetime
+        required: true
+        description: ISO 8601 UTC timestamp when the assertion was made
+      verification_state:
+        type: enum
+        required: true
+        values: [Proposed, Under_Review, Confirmed, Rejected, Superseded]
+        description: >
+          Cached projection of the verification_event records on the owning fact. Proposed =
+          asserted, not yet reviewed. Under_Review = a human/agent verification is in progress.
+          Confirmed = a verifier signed off (for regulated facts, a person — see verification_event).
+          Rejected = a verifier found it wrong and it is not in force. Superseded = replaced by a
+          newer assertion (see verification_event.supersedes). The authoritative history lives in
+          verification_event; this field is the fast-read current state.
+
+    relationships:
+      verified_through:
+        target: verification_event
+        cardinality: one-to-many
+        description: >
+          The verification acts performed on the fact carrying this provenance. verification_state
+          is the projection of these. Defined in schemas/verification_event.yaml.

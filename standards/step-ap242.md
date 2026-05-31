@@ -111,6 +111,16 @@ STEP AP242 carries a product definition, not its approval state. There is no fie
 - Whether a First Article has been completed and approved for this P/N/revision
 - Whether source inspection is required for this shipment
 
+### Gap 5: PMI Is Evidence, Not Authority — and Geometry Must Anchor Inference
+
+The MBD promise is that GD&T travels as machine-readable **semantic PMI** inside the model, so a system can parse tolerances straight from the file. In practice this is unreliable enough that the manufacturer layer must not architect around it:
+
+- **Semantic vs graphical PMI.** Many AP242 files carry PMI as *graphical* annotations (text positioned in 3D space) rather than *semantic* PMI (structured, queryable, associated to faces). Graphical PMI is not extractable as data. The `cad_model.semantic_pmi_present` flag (`schemas/cad_model.yaml`) records which was delivered.
+- **The drawing governs.** In most aerospace contracts the controlling document is the 2D drawing; the model is reference. When the two disagree, the drawing wins — recorded explicitly via the staged `part_specification.controlling_authority` field. Parsed PMI is therefore modeled as `assertion_method: Standard_Parsed` — *one corroborating source, usually low-confidence*, not the authoritative reading.
+- **Geometry anchors inference; it does not author it.** The high-value, reliable extraction from a STEP file is *exact geometry*: a kernel reconstructs the B-rep and computes a feature's dimensions and recognizes its topology. An AI is excellent at *interpreting* (this face is a precision bore; it maps to drawing balloon 12) and unreliable at *measuring* (reading Ø12.70 off a render). So the architecture splits the work: the geometry kernel measures a feature's geometry (`assertion_method: Computed`), the model interprets and reads the drawing's *requirements* (`assertion_method: AI_Inferred` — because tolerances and GD&T are not in the geometry at all), and a human confirms (`verification_event`). The kernel is the **hallucination anchor**. This is why `cad_model` is a first-class entity (the parsed geometric-truth artifact), why a *feature's* geometric dimensions may never be `AI_Inferred`, and why a *characteristic's* requirements — which the geometry cannot supply — are `AI_Inferred` from the drawing and gated by human verification.
+
+See `extensions/provenance-and-verification.md` and `reference/composition-archetypes.md` Walk 8 (Design Ingestion / CAM Programming) for the full treatment, and Decision 1.10 in `reference/taxonomic-decisions.md`.
+
 ---
 
 ## Integration Points
@@ -127,7 +137,7 @@ STEP AP242 carries a product definition, not its approval state. There is no fie
 
 ## Tools and Resources
 
-- **STEP file readers:** Siemens JT2Go (free viewer), CADExchanger, OpenCASCADE (open source)
+- **STEP file readers / geometry kernels:** Siemens JT2Go (free viewer), CADExchanger, **OpenCASCADE (OCCT, open source)** — the open geometry kernel that reconstructs a STEP file into a queryable B-rep. In the manufacturer pipeline this is what produces the `cad_model` artifact: exact surfaces and topology from which dimensions are *computed* (not inferred) and features are recognized. It is the hallucination anchor described in Gap 5 — the kernel measures, the model interprets, the human verifies.
 - **PMI extraction:** NIST's MBD (Model-Based Definition) test artifacts — publicly available STEP AP242 files with known PMI for testing extraction pipelines: https://www.nist.gov/el/systems-integration-division/mbd-pmi-test-cases
 - **MTConnect SysML model:** https://github.com/mtconnect/mtconnect-sysml-model (reference for device/component modeling that complements STEP AP242)
 - **IOF collaboration on STEP ontology:** Industrial Ontology Foundry (IOF) is developing OWL ontologies that formalize STEP concepts; the manufacturer's material-certs extension should align with IOF's manufacturing reference ontology where possible
