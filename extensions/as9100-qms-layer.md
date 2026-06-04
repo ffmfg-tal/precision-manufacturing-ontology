@@ -4,7 +4,7 @@
 
 The AS9100D quality management standard requires a set of documented process records that sit above the product manufacturing layer: contract review evidence, corrective action tracking, internal audit records, risk management, and continual improvement captures. These are pure manufacturer-layer entities — no Layer-1 standard (STEP AP242, MTConnect, QIF, X12 EDI) defines schemas for them.
 
-This extension defines nine entities that close the alignment gap between the ontology's product-manufacturing model and a conforming AS9100D QMS implementation. They were derived from the April 2026 coherence pass of warp-core's OMS phase 1–3 entities against AS9100D clause requirements.
+This extension defines ten entities that close the alignment gap between the ontology's product-manufacturing model and a conforming AS9100D QMS implementation. The first nine were derived from the April 2026 coherence pass of warp-core's OMS phase 1–3 entities against AS9100D clause requirements; `tracked_document` was added 2026-04-28 to provide the §7.5 controlled-document register that the contract-review flow depends on.
 
 ### Composition-Test Framing
 
@@ -119,6 +119,26 @@ AS9100D §10.3 requires the organization to continually improve the suitability,
 A lesson is captured from a specific source (audit finding, customer complaint, NCR, FAI rejection, corrective action outcome, or project retrospective) and disseminated to relevant persons and processes. `applicable_processes` and `applicable_part_families` fields allow filtering lessons to relevant future work.
 
 **AS9100D mapping:** §10.3 continual improvement; §7.1.6 organizational knowledge (retained documented information of experience gained).
+
+---
+
+### tracked_document (AS9100D §7.5)
+
+Schema: `schemas/tracked_document.yaml`
+
+AS9100D §7.5 (control of documented information) requires the organization to identify documented information needed by the QMS, control its creation and update (identity, format, review and approval), and control its distribution, access, retrieval, storage, and obsolescence. `tracked_document` is the canonical controlled-document register that closes that gap. It covers QMS procedures and work instructions, the quality manual, customer-supplied quality manuals and T&Cs, customer-cited specs, inbound PO/drawing documents, outbound quotes, supplier quality requirements and NDAs, organization-level compliance certs received, training material, and external references.
+
+`category` partitions the register into the document classes the QMS recognizes. `revision`, `effective_date`, `approval_state`, `owner_principal_id`, `approver_principal_id`, and `approved_at` carry the §7.5.2 review-and-approval evidence. `supersedes_id` and `superseded_by_id` form the obsolescence chain required by §7.5.3 — a Released document can only be retired by superseding it with a new revision, which flips the predecessor to `Superseded` and the successor inherits the trail. `classification` reserves the access-control discriminator (Public / Internal / Confidential / ITAR / CUI / EAR); enforcement is the access policy layer's job once policies are stood up.
+
+`subject_type` and `subject_id` are a polymorphic FK (Decision 1.9) — the same pattern used by `first_article_inspection`, `nonconformance_report`, `key_characteristic`, `operational_risk_assessment`, and `corrective_action`. They are nullable because many controlled documents (the quality manual, blanket QMS procedures, training material) have no specific subject. When populated, `subject_type` discriminates which entity `subject_id` references.
+
+`storage_pointer` is a JSON-encoded discriminated union that locates the document content. v1 supports four kinds: `email_ingest_r2` (sha256 + r2_key) for content-addressed copies pulled from the email-archive substrate; `warp_core_r2` (r2_key) for first-class warp-core blobs; `external_url` (url) for references into vendor portals or customer document libraries; `paper_only` (location_note) for physical-only documents. The discriminator validation lives in the domain service so codegen can keep treating the field as opaque JSON.
+
+**Distinction from certification_document:** `certification_document` is a record of evidence (an MTR, CoC, DFARS declaration, etc.) issued by an external party against a material lot or process run. `tracked_document` is a controlled document — a piece of documented information whose revision, approval state, and obsolescence the manufacturer governs. Both are intentionally distinct entities.
+
+**Engineering-artifact integration (planned):** `print_file`, `cam_file`, `nc_program`, `cmm_program`, `setup_sheet`, `inspection_plan`, and `tooling_list` retain their domain-specific attributes; a follow-on change will add an optional `tracked_document_id` FK to each so they can also surface in the controlled-document register without losing their domain shape. Until that lands, those entities are governed by their own status fields and the prose references to "controlled document store" in their `file_reference` descriptions remain accurate.
+
+**AS9100D mapping:** §7.5.1 (general — register of documented information); §7.5.2 (creating and updating — identity, format, review and approval); §7.5.3 (control of documented information — distribution, access, retrieval, storage, obsolescence).
 
 ---
 

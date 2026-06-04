@@ -1,0 +1,245 @@
+# schemas/tracked_document.yaml
+#
+# Polymorphic controlled-document register. tracked_document is the canonical
+# entity for documented information that is subject to AS9100D §7.5 control:
+# QMS procedures, work instructions, forms, the quality manual, customer
+# quality manuals, customer terms-and-conditions, customer-cited specs,
+# inbound PO/drawing documents, outbound quotes, supplier quality requirements,
+# NDAs, received compliance certs (organization-level, not material-lot),
+# training material, and external references.
+#
+# Layer 1 coverage:
+#   No Layer-1 standard (STEP AP242, MTConnect, QIF, X12 EDI) defines a
+#   controlled-document data schema. This is a pure manufacturer-layer entity.
+#
+# AS9100D mapping (§7.5 — Documented Information):
+#   §7.5.1 General — the register itself.
+#   §7.5.2 Creating and updating — title, document_number, revision,
+#     approval_state, owner_principal_id, approver_principal_id, approved_at,
+#     effective_date enforce identity, format, review and approval.
+#   §7.5.3 Control of documented information — supersedes_id /
+#     superseded_by_id form the obsolescence chain; classification governs
+#     access; storage_pointer + tags govern distribution and retrieval.
+#
+# Distinction from certification_document:
+#   certification_document is a record of evidence (an MTR, CoC, DFARS
+#   declaration, etc.) issued by an external party against a material lot or
+#   process run. tracked_document is a controlled document — a piece of
+#   documented information whose revision, approval state, and obsolescence
+#   the manufacturer governs. The two are intentionally distinct entities.
+#
+# Polymorphic subject:
+#   subject_type + subject_id follow the same polymorphic FK pattern used by
+#   first_article_inspection, nonconformance_report, key_characteristic,
+#   operational_risk_assessment, and corrective_action (Decision 1.9).
+#   subject_type is nullable — many controlled documents (e.g. the quality
+#   manual, blanket QMS procedures) have no specific subject.
+#
+# Storage pointer:
+#   storage_pointer is a JSON-encoded discriminated union that abstracts where
+#   the document content lives. v1 supports four kinds:
+#     {kind:"email_ingest_r2", sha256, r2_key}  — content-addressed copy from
+#                                                 the email-archive substrate
+#     {kind:"warp_core_r2",    r2_key}          — first-class warp-core blob
+#     {kind:"external_url",    url}             — reference into a remote
+#                                                 system (vendor portal,
+#                                                 customer document library)
+#     {kind:"paper_only",      location_note}   — physical-only document
+#   The discriminator validation lives in domain code, not in codegen.
+#
+# Engineering-artifact integration (deferred):
+#   print_file, cam_file, nc_program, cmm_program, setup_sheet, inspection_plan,
+#   and tooling_list each retain their domain-specific attributes; a follow-on
+#   change will add an optional tracked_document_id FK to each so that they
+#   can also surface in the controlled-document register without losing their
+#   shape. That work is out of scope for this entity's first cut.
+#
+# Prose source: extensions/as9100-qms-layer.md §7.5 controlled documents
+# Domain: reference/domain-map.md §QMS
+
+entities:
+
+  tracked_document:
+    description: >
+      A controlled document under AS9100D §7.5: documented information whose
+      revision, approval state, effective date, and obsolescence the
+      manufacturer governs. Polymorphic by subject (customer, supplier, job,
+      etc.) and by storage backend (R2 blob, external URL, paper). Distinct
+      from certification_document (record of external evidence against a lot
+      or process run); tracked_document is the manufacturer's own register of
+      documented information.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4 per uuid-discipline.md
+      category:
+        type: enum
+        required: true
+        values:
+          - QMS_Procedure
+          - QMS_Work_Instruction
+          - QMS_Form
+          - QMS_Quality_Manual
+          - Customer_Quality_Manual
+          - Customer_TermsAndConditions
+          - Customer_Spec_Reference
+          - Customer_PO_Document
+          - Customer_Drawing
+          - Quote_Outbound
+          - Supplier_Quality_Requirement
+          - Supplier_NDA
+          - Compliance_Cert_Received
+          - Training_Material
+          - Reference_External
+          - Other
+        description: >
+          What the document is. Drives default retention, distribution, and
+          which agent / role typically owns the review cycle.
+      title:
+        type: string
+        required: true
+        description: Human-readable title
+      document_number:
+        type: string
+        required: false
+        description: Internal document number (e.g., "QP-7.5-01") or issuer's number
+      revision:
+        type: string
+        required: false
+        description: Revision letter or number; free-form per issuer convention
+      effective_date:
+        type: date
+        required: false
+        description: Date this revision becomes / became effective
+      supersedes_id:
+        type: uuid
+        required: false
+        description: FK → tracked_document.id — prior revision this document replaces
+      superseded_by_id:
+        type: uuid
+        required: false
+        description: FK → tracked_document.id — newer revision that replaced this document
+      approval_state:
+        type: enum
+        required: true
+        values: [Draft, In_Review, Approved, Released, Obsolete, Superseded]
+        description: >
+          §7.5.2 review-and-approval state. Draft → In_Review → Approved →
+          Released is the typical creation path; Obsolete and Superseded are
+          terminal states.
+      owner_principal_id:
+        type: uuid
+        required: false
+        description: FK → principal.id — process owner / document owner
+      approver_principal_id:
+        type: uuid
+        required: false
+        description: FK → principal.id — principal who recorded the approval
+      approved_at:
+        type: datetime
+        required: false
+        description: ISO 8601 UTC timestamp of approval
+      classification:
+        type: enum
+        required: false
+        values: [Public, Internal, Confidential, ITAR, CUI, EAR]
+        description: >
+          Information classification governing access and distribution.
+          Classification is enforced by the access policy layer (§8 of the
+          warp-core database design) once policies are stood up; the field is
+          recorded here today so that obsolete or pre-control documents can
+          be reclassified later without schema change.
+      subject_type:
+        type: enum
+        required: false
+        nullable: true
+        values: [customer, supplier, work_center, process_specification, sales_order, job, part]
+        description: >
+          Discriminator for subject_id polymorphic FK. Null for documents
+          with no specific subject (the quality manual, blanket QMS procedures,
+          training material, etc.).
+      subject_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: FK → the subject entity id, paired with subject_type
+      storage_pointer:
+        type: object
+        required: true
+        description: >
+          JSON-encoded discriminated union locating the document content.
+          Discriminator is the `kind` field; supported kinds are
+          email_ingest_r2 (sha256 + r2_key), warp_core_r2 (r2_key),
+          external_url (url), paper_only (location_note). Validated in
+          domain code; codegen treats it as opaque JSON.
+      language:
+        type: string
+        required: false
+        description: ISO 639-1 language code; defaults to "en" if omitted
+      tags:
+        type: array
+        required: false
+        items:
+          type: string
+        description: Free-form tags for retrieval (auditable, not authoritative)
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      supersedes:
+        target: tracked_document
+        cardinality: many-to-one
+        nullable: true
+        description: Prior revision this document replaces
+      superseded_by:
+        target: tracked_document
+        cardinality: many-to-one
+        nullable: true
+        description: Newer revision that replaced this document
+      owned_by:
+        target: principal
+        cardinality: many-to-one
+        nullable: true
+        description: Process owner / document owner
+      approved_by:
+        target: principal
+        cardinality: many-to-one
+        nullable: true
+        description: Principal who recorded the approval
+      about_customer:
+        target: customer
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = customer
+      about_supplier:
+        target: supplier
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = supplier
+      about_work_center:
+        target: work_center
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = work_center
+      about_process_specification:
+        target: process_specification
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = process_specification
+      about_sales_order:
+        target: sales_order
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = sales_order
+      about_job:
+        target: job
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = job
+      about_part:
+        target: part
+        cardinality: many-to-one
+        nullable: true
+        description: Set when subject_type = part

@@ -4,6 +4,10 @@
 # Updated: 2026-04-26 (AS9100D QMS layer — 9 new entries: audit_finding, audit_plan,
 #   contract_review_event, corrective_action, customer_complaint, lessons_learned,
 #   operational_risk_assessment, product_release_authorization, requirement_change_notification)
+# Updated: 2026-05-16 (consumable_inventory entity) and 2026-05-31 (provenance & design-ingestion:
+#   cad_model, derived_view, manufacturing_feature, verification_event) — reached 132 entries.
+# Updated: 2026-06-04 (tracked_document — AS9100D §7.5 controlled-document register, schema
+#   authored 2026-04-28, integrated here; file now holds 133 entries).
 # Source: reference/composition-archetypes.md + extensions/*.md + reference/domain-map.md + schemas/*.yaml
 #
 # Purpose: machine-readable union of every entity the ontology touches. Feeds the
@@ -1084,6 +1088,14 @@ inventory:
       - reference/composition-archetypes.md  # Archetype C: has_torque_spec edge; references AS5272
     has_schema: schemas/assembly.yaml
     notes: "Template defining required torque value, tolerance, and installation conditions (lube_condition, safetying_required) for a fastener position. Typically derived from AS5272. Referenced by assembly_routing (default) and assembly_operation (step-level override). Schema added Phase 2: schemas/assembly.yaml."
+
+  - name: tracked_document
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/tracked_document.yaml  # canonical schema (authored 2026-04-28, integrated 2026-06-04)
+      - extensions/as9100-qms-layer.md  # §7.5 controlled-document narrative
+    has_schema: schemas/tracked_document.yaml
+    notes: "AS9100D §7.5 controlled-document register: QMS procedures and work instructions, the quality manual, customer quality manuals and T&Cs, customer-cited specs, inbound PO/drawing documents, outbound quotes, supplier quality requirements and NDAs, organization-level compliance certs received, training material, and external references. Polymorphic by subject (subject_type + subject_id over customer/supplier/work_center/process_specification/sales_order/job/part, nullable) per Decision 1.9. revision/approval_state/effective_date plus supersedes_id/superseded_by_id carry §7.5.2 review-and-approval and the §7.5.3 obsolescence chain. storage_pointer is a JSON discriminated union (email_ingest_r2 | warp_core_r2 | external_url | paper_only). owner_principal_id/approver_principal_id reference a principal (Layer-3 actor), intentionally not Layer-2 graph nodes. Deliberately distinct from certification_document (external evidence against a material lot or process run). Schema: schemas/tracked_document.yaml."
 
   - name: uns_number
     archetypes_used_in: [A, B, C]

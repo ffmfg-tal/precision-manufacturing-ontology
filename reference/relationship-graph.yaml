@@ -15,15 +15,19 @@
 # Updated: 2026-05-31 (provenance & verification + design ingestion — 5 new entities;
 #   21 new edges (17 active from new schemas + 4 staged for implementation codegen);
 #   edges from schemas/cad_model.yaml, derived_view.yaml, manufacturing_feature.yaml,
-#   verification_event.yaml, provenance.yaml. Decision 1.10. NOTE: the pre-existing
-#   117→128 entity backlog in entity-inventory.yaml is unchanged by this update.)
+#   verification_event.yaml, provenance.yaml. Decision 1.10.)
+# Updated: 2026-06-04 (tracked_document — AS9100D §7.5 controlled-document register;
+#   9 new entity-structural edges from schemas/tracked_document.yaml. The entity's
+#   owned_by/approved_by → principal relationships reference a Layer-3 actor, not a
+#   Layer-2 entity node, and are intentionally not graphed. The earlier entity-inventory
+#   backlog noted in prior headers is resolved: inventory holds all 133 entities.)
 #
 # Machine-readable enumeration of every edge in the ontology. Consumed by
 # agent traversal, graph visualization, and downstream deepening tasks.
 #
-# Total edges: 409 actual (21 added 2026-05-31: 17 active from new schemas + 4 staged).
-#   Prior running tally in this header was approximate (claimed 389; actual prior was 388) —
-#   the 2026-05-31 count is a true list count.
+# Total edges: 418 actual (9 added 2026-06-04 for tracked_document; 21 added 2026-05-31:
+#   17 active from new schemas + 4 staged). Prior running tally in this header was approximate
+#   (claimed 389; actual prior was 388) — the 2026-05-31 count is a true list count.
 #
 # Extraction sources (see 'source' field values):
 #   - archetype_a / archetype_b / archetype_c: edges derived from the
@@ -2831,3 +2835,74 @@ relationships:
     verb: produces_feature
     cardinality: one-to-many
     source: [staged]  # operation.produces_feature_ids[] — extensions/provenance-and-verification.md
+
+  # ============================================================
+  # TRACKED DOCUMENT — AS9100D §7.5 controlled-document register (2026-06-04)
+  # ============================================================
+  # Note: tracked_document also has owned_by/approved_by → principal relationships
+  # in schemas/tracked_document.yaml. `principal` is a Layer-3 actor (warp-core),
+  # not a Layer-2 ontology entity, so those two relationships are intentionally
+  # not represented as graph edges. The 9 edges below are the entity-structural ones.
+
+  - from: tracked_document
+    to: tracked_document
+    verb: supersedes
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Prior revision this document replaces (§7.5.3 obsolescence chain).
+
+  - from: tracked_document
+    to: tracked_document
+    verb: superseded_by
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Newer revision that replaced this document (§7.5.3 obsolescence chain).
+
+  - from: tracked_document
+    to: customer
+    verb: about_customer
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = customer.
+
+  - from: tracked_document
+    to: supplier
+    verb: about_supplier
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = supplier.
+
+  - from: tracked_document
+    to: work_center
+    verb: about_work_center
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = work_center.
+
+  - from: tracked_document
+    to: process_specification
+    verb: about_process_specification
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = process_specification.
+
+  - from: tracked_document
+    to: sales_order
+    verb: about_sales_order
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = sales_order.
+
+  - from: tracked_document
+    to: job
+    verb: about_job
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = job.
+
+  - from: tracked_document
+    to: part
+    verb: about_part
+    cardinality: many-to-one
+    source: [schemas/tracked_document.yaml]
+    description: Set when subject_type = part.
