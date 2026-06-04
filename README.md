@@ -28,7 +28,7 @@ The Manifesto puts it plainly: *"data is the product, too."* **This repository i
 
 A complete entity model for contract-manufacturing precision work:
 
-- **132 entities** across **12 operational domains** — materials, quality, supply chain, inspection, assembly, tooling, change management, and more.
+- **133 entities** across **12 operational domains** — materials, quality, supply chain, inspection, assembly, tooling, change management, and more.
 - **Machine-readable schemas** for every entity that needs one, in plain YAML.
 - **Eight worked examples** that walk real parts — from a single machined part, to an outside-processed part with full first-article inspection, to a multi-part assembly — decomposing each one against the model end to end.
 - **A provenance and verification layer** so every fact a system asserts carries how it was established, how confident it is, where it came from, and whether a human has checked it. This is the groundwork that makes it safe to put AI in the loop on regulated aerospace work — *AI runs the manufacturing-engineering loop; humans verify, judge, and own.*
@@ -72,11 +72,11 @@ A new contributor, human or agent, can reach any entity in two hops from here.
 
 ## Status
 
-**Active and substantially complete.** The spec covers the contract-manufacturer layer end to end — 12 domains, 132 entities, with the provenance & verification substrate in place as of 2026-05-31. What remains is a short, deliberate residual list, not unfinished core work.
+**Active and substantially complete.** The spec covers the contract-manufacturer layer end to end — 12 domains, 133 entities, with the provenance & verification substrate in place as of 2026-05-31. What remains is a short, deliberate residual list, not unfinished core work.
 
 - **Composition coverage** — all eight worked walks decompose cleanly against the spec, including Walk 8 (design ingestion), which closes the front of the thread: model + drawing → structured features and requirements. A representative complex aerospace part can be walked from drawing callout to shipped cert package without hitting a gap.
-- **Entity & schema coverage** — 132 entities; 120 carry a standalone YAML schema. The remaining 12 are intentionally schema-less: external standards modeled but not re-authored here (`machine_event`/MTConnect, `qif_results_document`/QIF, `x12_856_asn`/X12, `usml_category`/ITAR), string/enum value types (`country`, `heat_number`, `spec_body`, `uns_number`), aliases (`fai_package`, `process_identification`), an embedded sub-object (`fai_form_1_header`), and one entity removed from canon (`item`, Decision 1.9).
-- **Machine-readable reference files are current** as of 2026-05-31: [`reference/entity-inventory.yaml`](reference/entity-inventory.yaml) holds all 132 entries and [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) holds 409 edges. No inventory or graph backlog remains.
+- **Entity & schema coverage** — 133 entities; 121 carry a standalone YAML schema. The remaining 12 are intentionally schema-less: external standards modeled but not re-authored here (`machine_event`/MTConnect, `qif_results_document`/QIF, `x12_856_asn`/X12, `usml_category`/ITAR), string/enum value types (`country`, `heat_number`, `spec_body`, `uns_number`), aliases (`fai_package`, `process_identification`), an embedded sub-object (`fai_form_1_header`), and one entity removed from canon (`item`, Decision 1.9).
+- **Machine-readable reference files are current** as of 2026-06-04: [`reference/entity-inventory.yaml`](reference/entity-inventory.yaml) holds all 133 entries and [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) holds 418 edges. No inventory or graph backlog remains.
 
 **Remaining residuals — intentional and minor.** Tracked in full in [`reference/residual-gaps.md`](reference/residual-gaps.md):
 - **SDR** (Supplier Deviation Request, AS9100 §8.7.2) and **RMA** standalone entities are deferred; both have partial coverage today (`deviation_waiver` and `shipment` with `direction=return` respectively).

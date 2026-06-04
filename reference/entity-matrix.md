@@ -1598,6 +1598,19 @@ Entities are listed alphabetically (matching `entity-inventory.yaml` order). Ent
 | Composition rule | ✅ | Template entity; torque_sequence/torque_readings_record relationship resolved: three separate entities, each referenced independently by assembly_operation. (Phase 3.4) |
 | Canonical framing | ✅ | Own terms. |
 
+### tracked_document
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/tracked_document.yaml` — AS9100D §7.5 controlled-document register (authored 2026-04-28, integrated 2026-06-04). |
+| Attributes complete | ✅ | id, category, title, document_number, revision, effective_date, supersedes_id, superseded_by_id, approval_state, owner_principal_id, approver_principal_id, approved_at, classification, subject_type (nullable), subject_id (nullable), storage_pointer (JSON discriminated union), language, tags, notes; all fields specified. |
+| Relationships typed | ✅ | `supersedes / superseded_by → tracked_document` (self, many-to-one), `about_customer → customer`, `about_supplier → supplier`, `about_work_center → work_center`, `about_process_specification → process_specification`, `about_sales_order → sales_order`, `about_job → job`, `about_part → part` (all many-to-one). `owned_by / approved_by → principal` are Layer-3 actor refs (not Layer-2 graph nodes). |
+| State machine | 🟡 | `approval_state` enum (Draft → In_Review → Approved → Released; Obsolete / Superseded terminal) carries lifecycle; transition graph with guards not yet formally enumerated. |
+| Cross-ref integrity | 🟡 | Not yet added to uuid-discipline.md entity table — standard pre-UUID-pass status. |
+| Standards provenance | ✅ | AS9100D §7.5.1/§7.5.2/§7.5.3 mapped in schema header and `extensions/as9100-qms-layer.md`. No Layer-1 standard defines a controlled-document schema; pure manufacturer-layer entity. |
+| Composition rule | ✅ | Polymorphic register (subject_type + subject_id, Decision 1.9). Deliberately distinct from `certification_document` (external evidence against a material lot or process run). |
+| Canonical framing | ✅ | Own terms. |
+
 ### uns_number
 
 | Dimension | Status | Note |
