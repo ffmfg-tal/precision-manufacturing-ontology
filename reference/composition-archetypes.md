@@ -964,3 +964,85 @@ Deduplicated list of every unique `[Entity]` node type introduced by these four 
 - `[Prove-Out Record]`
 - `[Tool Maintenance Event]`
 - `[Tool Room Allocation]`
+
+---
+
+## Walk 8 — Design Ingestion / CAM Programming
+
+**Scenario:** The customer delivers the design package for MFG-TI64-FIT-007 Rev A (the titanium fitting of Archetype B): a STEP AP242 solid model and a 2D PDF drawing. Before any of Archetype B's routing, operations, or characteristics can exist, a manufacturing engineer — working with an AI extraction pipeline — must turn that package into a **structured manufacturing definition**: the features to machine, the requirements that constrain them, and the process plan that makes them. This walk models that front segment.
+
+**What this walk tests:** the design-ingestion layer and the provenance/verification substrate (`cad_model`, `derived_view`, `manufacturing_feature`, `characteristic`, `provenance`, `verification_event`). Every archetype above *starts* at `[Part Specification]` and assumes the routing and characteristics already exist. This walk models how they come to be — the step that previously lived only in a programmer's head — and demonstrates that an AI-in-the-loop pipeline stores **assertions with provenance**, gated by **human verification**, not raw facts.
+
+### Decomposition tree
+
+(node types are in square brackets; edges are labeled)
+
+- `[Part Specification]` customer CAGE 54321 drawing 987-654 Rev A — `controlling_authority`: Drawing
+  - `delivered_as` → `[CAD Model]` 987-654-RevA.stp (STEP AP242)
+    - `model_format`: STEP_AP242; `brep_available`: true; `kernel_reconstructed`: true (OpenCASCADE)
+    - `semantic_pmi_present`: false (PMI present as graphical annotation only — drawing governs)
+    - `content_hash`: sha256(...); `units`: mm; `bounding_box`: 152.4 x 88.9 x 25.4 mm
+  - `delivered_as` → `[Part Specification PDF]` 987-654-RevA.pdf (the controlling 2D drawing)
+- `[CAD Model]` 987-654-RevA.stp
+  - `has_view` → `[Derived View]` ISO (kernel render) — purpose: AI_Feature_Recognition
+  - `has_view` → `[Derived View]` Section A-A through bore axis — exposes the internal precision bore
+  - `has_view` → `[Derived View]` Orthographic Top — purpose: Human_Review
+  - `grounds_feature` → `[Manufacturing Feature]` MF-01 precision bore Ø12.70
+    - `brep_face_refs`: [face:14, face:15]; `nominal_dimensions`: "Ø12.70 thru" (**Computed** from B-rep)
+    - `recognized_by`: AI_Inferred
+    - `has_provenance` → `[Provenance]` method: AI_Inferred; confidence: 0.91; model_identifier: claude-opus-4-8; source_artifact_refs: [cad_model:..., derived_view:SEC-A]; verification_state: Proposed
+  - `grounds_feature` → `[Manufacturing Feature]` MF-02 mounting pocket 25 x 12 x 8
+    - `brep_face_refs`: [face:31, face:32, face:33, face:34]; `nominal_dimensions`: "25.0 x 12.0 x 8.0, R3 corners" (Computed)
+    - `recognized_by`: AI_Inferred; `has_provenance` → `[Provenance]` confidence: 0.88; verification_state: Proposed
+  - `grounds_feature` → `[Manufacturing Feature]` MF-03 tapped hole 1/4-28 UNF
+    - `brep_face_refs`: [face:52]; `recognized_by`: AI_Inferred
+    - `has_provenance` → `[Provenance]` confidence: 0.62 (thread pitch ambiguous from geometry); verification_state: Proposed → escalated to human
+- `[Characteristic]` (extracted from the controlling drawing, not the model)
+  - `[Characteristic]` CH-12 bore Ø12.70 +0.013/-0.000, position Ø0.05 to A|B|C (balloon 12)
+    - `constrains` → `[Manufacturing Feature]` MF-01
+    - `has_provenance` → `[Provenance]` method: AI_Inferred (read from drawing image); confidence: 0.94; source_artifact_refs: [part_specification:pdf]; verification_state: Proposed
+    - `tolerance_type`: Position; `is_critical`: true (→ candidate `key_characteristic`)
+  - `[Characteristic]` CH-27 tapped hole 1/4-28 UNF-2B (balloon 27)
+    - `constrains` → `[Manufacturing Feature]` MF-03
+    - `has_provenance` → `[Provenance]` method: AI_Inferred; confidence: 0.93; verification_state: Proposed
+    - NOTE: drawing says **1/4-28**; AI geometry read of MF-03 guessed 1/4-20 → conflict surfaced for verification
+- `[Verification Event]` VE-01 — human confirms the bore
+  - `verifies` → `[Manufacturing Feature]` MF-01 / `[Characteristic]` CH-12
+  - `decision`: Confirmed; `verifier_principal_type`: user; `verifier_id`: programmer (Jackie@); `verification_method`: Cross_Check_Source
+  - `rationale`: "Bore Ø and position datum scheme A|B|C confirmed against Section A-A and balloon 12"; `confidence_after`: 1.0
+  - effect: MF-01.provenance.verification_state → Confirmed; CH-12 → Confirmed
+- `[Verification Event]` VE-02 — human corrects the thread
+  - `verifies` → `[Manufacturing Feature]` MF-03 / `[Characteristic]` CH-27
+  - `decision`: Corrected; `verification_method`: Cross_Check_Source
+  - `prior_value`: "1/4-20" (AI geometry guess); `corrected_value`: "1/4-28 UNF-2B" (per controlling drawing)
+  - `rationale`: "Thread pitch not reliably inferable from geometry; drawing governs"; `confidence_after`: 1.0
+  - effect: MF-03 → Confirmed with corrected thread; the Standard_Parsed PMI (if any) treated as corroborating only
+- `[Routing]` R-MFG-TI64-FIT-007-v2 (authored from the confirmed feature set)
+  - `contains_operation` → `[Operation]` OP-020 5-axis rough — `produces_feature` → MF-02 (pocket)
+  - `contains_operation` → `[Operation]` OP-040 finish — `produces_feature` → MF-01 (bore), MF-03 (tap)
+  - (continues into Archetype B's routing, outside processing, FAI, and cert package)
+
+### Provenance flow
+
+The defining property of this walk is that **no fact enters the thread as ground truth.** Each is an assertion with a method and a confidence:
+
+- **Feature geometry is Computed; the AI never measures.** MF-01's Ø12.70 is read off the reconstructed B-rep by the geometry kernel — the hallucination anchor. The AI's job on the *model* is *recognition and association* (this is a bore; it maps to balloon 12), not *measurement*.
+- **Requirements are read from the controlling drawing — and that is correctly `AI_Inferred`.** A characteristic's tolerance, GD&T, and datum scheme (CH-12: +0.013/-0.000, position Ø0.05 to A|B|C) are not present in the geometry, so they come from the PDF as `AI_Inferred` (high confidence) — never `Computed`, and never from model PMI here (`semantic_pmi_present` is false; even when true the drawing governs). CH-12's *nominal* (Ø12.70) is cross-checked against MF-01's `Computed` dimension: they agree, which raises confidence; had they disagreed, that is the model-vs-drawing flag `controlling_authority` resolves. Either way a `verification_event` signs it.
+- **Conflicts surface for verification.** MF-03's low geometry-confidence thread (0.62) and the 1/4-20 vs 1/4-28 disagreement route to a human `verification_event`, which corrects it. The corrected value, not the AI assertion, flows downstream (validation rule 7).
+- **Confirmation is a signed, immutable act.** VE-01/VE-02 are the auditable seam where the programmer's accountability attaches to the AI-produced definition. The feature set drives routing authoring only after `verification_state = Confirmed`.
+
+### Digital thread break analysis
+
+Without `cad_model` as a parsed geometric-truth artifact, dimensions would have to be eyeballed from renders or hand-keyed — there is no anchor for `Computed` assertions and no `brep_available` signal to know whether exact measurement is even possible. Without `derived_view`, an AI feature recognition has no auditable record of *what it saw* — an inference citing "Section A-A" cannot be checked. Without `manufacturing_feature`, the structured output of extraction has nowhere to live: the link from geometry to the operations that make it and the characteristics that constrain it exists only in the programmer's head and the CAM project file. Without `provenance`, every extracted fact looks equally trustworthy, and an AI-guessed thread pitch is indistinguishable from a kernel-measured bore diameter. Without `verification_event`, there is no record that a person confirmed the AI's work — fatal in an AS9100/ITAR context where accountability must be auditable.
+
+### Entity touchpoints
+
+`part_specification` · `cad_model` · `derived_view` · `manufacturing_feature` · `provenance` (value-object) · `characteristic` · `verification_event` · `routing` · `operation`
+
+### Entities introduced by Walk 8 (not in Archetypes A–C or Walks 4–7)
+
+- `[CAD Model]`
+- `[Derived View]`
+- `[Manufacturing Feature]`
+- `[Provenance]` (value-object / mixin — embedded, no standalone identity)
+- `[Verification Event]`

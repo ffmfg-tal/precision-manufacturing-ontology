@@ -1717,3 +1717,74 @@ Counts across 117 entities (updated 2026-04-24 for Phase 2 + InspectAI additions
 - **Canonical framing** remains 79 ✅. No change.
 - **Cross-ref integrity**: the UUID table in `extensions/uuid-discipline.md` remains the main gap — Phase 2–3 entities not yet added to the UUID entity table. Phase 3.5 work item.
 - **Standards provenance**: 39 ✅ / 32 🟡 / 3 🔴 / 8 ⬜. Phase 3.4 promoted key_characteristic (AS9100/AS9102/QIF all mapped), kit_record to ⬜ (Layer-2 pure), and moved four torque/assembly entities from 🔴 to 🟡 (AS5272/NASM 33540 referenced via FK but not fully cross-referenced in standards/). Remaining 🔴: three entities with no applicable standard (pure Layer-2).
+
+---
+
+## Provenance & Verification + Design Ingestion (2026-05-31, Decision 1.10)
+
+Five additions: four first-class entities plus the `provenance` value-object (mixin, not counted). All schema-defined; all exercised by `reference/composition-archetypes.md` Walk 8 (Design Ingestion / CAM Programming) — so all pass the composition test, unlike the QMS compliance-trail layer. Entity total 128 → 132.
+
+### cad_model
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/cad_model.yaml` (2026-05-31) |
+| Attributes complete | ✅ | format, received_from, brep_available, kernel_reconstructed, source_kernel, semantic_pmi_present, units, bounding_box, content_hash, file_ref, provenance. |
+| Relationships typed | ✅ | models_specification, of_part, has_views, grounds_features — all cardinated. |
+| State machine | ⬜ | Not lifecycle-bearing; superseded models retained as history. |
+| Cross-ref integrity | 🟡 | In provenance-and-verification.md + Walk 8; not yet in uuid-discipline.md UUID table. To green: add. |
+| Standards provenance | ✅ | STEP AP242 (file format) — the parsed-artifact record is the Layer-2 addition. step-ap242.md Gap 5. |
+| Composition rule | ✅ | Distinct from part_specification (document vs parsed geometric-truth artifact) per Decision 1.10. |
+| Canonical framing | ✅ | Grounding source for Computed assertions — the hallucination anchor. |
+
+### derived_view
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/derived_view.yaml` (2026-05-31) |
+| Attributes complete | ✅ | view_type, section_definition, image_ref, generated_by, purpose, provenance. |
+| Relationships typed | ✅ | derived_from (cad_model) cardinated. |
+| State machine | ⬜ | Not lifecycle-bearing. |
+| Cross-ref integrity | 🟡 | In Walk 8; not yet in UUID table. |
+| Standards provenance | ⬜ | Pure Layer-2; no standard models a render for AI/human consumption. |
+| Composition rule | ✅ | Generated from cad_model; grounding artifact an AI_Inferred assertion cites. |
+| Canonical framing | ✅ | Multimodal grounding for feature recognition. |
+
+### manufacturing_feature
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/manufacturing_feature.yaml` (2026-05-31) |
+| Attributes complete | ✅ | feature_class, brep_face_refs, nominal_dimensions, axis_vector, access_direction, recognized_by, provenance (required). |
+| Relationships typed | ✅ | on_part, grounded_in, realized_by, constrained_by, inspected_by, verified_by — all cardinated. |
+| State machine | 🟡 | Lifecycle via provenance.verification_state (Proposed→Confirmed/Rejected/Superseded); transition guards in provenance-and-verification.md, not yet a formal graph. |
+| Cross-ref integrity | 🟡 | In Walk 8; not yet in UUID table. |
+| Standards provenance | ✅ | STEP AP238 (machining features) / AP242 (geometry) — recognized-feature-with-provenance is the Layer-2 addition. |
+| Composition rule | ✅ | The bridge entity archetypes A/B/C skipped; reconciled with characteristic.feature_type (one concept, two altitudes) per Decision 1.10. |
+| Canonical framing | ✅ | Geometry-grounded; dimensions Computed not AI_Inferred. |
+
+### verification_event
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/verification_event.yaml` (2026-05-31) |
+| Attributes complete | ✅ | subject_type/id, decision, verifier_id, verifier_principal_type, verification_method, prior/corrected_value, confidence_after, rationale, verified_at, superseded_by_id. |
+| Relationships typed | ✅ | verifies_feature, verifies_characteristic, performed_by, supersedes — cardinated. |
+| State machine | ⬜ | Immutable after sign-off (like calibration_record / witness_inspection); the act is terminal, not a lifecycle. |
+| Cross-ref integrity | 🟡 | In Walk 8; not yet in UUID table. |
+| Standards provenance | ✅ | AS9100 §8.6 sign-off lineage; no standard models verification of an AI assertion — Layer-2 contribution. |
+| Composition rule | ✅ | Domain entity, NOT the infra event-log row (generates events; is not one) per Decision 1.10. |
+| Canonical framing | ✅ | The auditable seam where human accountability attaches to AI work. |
+
+### provenance
+
+| Dimension | Status | Note |
+|---|---|---|
+| Schema defined | ✅ | `schemas/provenance.yaml` (2026-05-31) — value-object/mixin, no standalone identity; not counted in entity total. |
+| Attributes complete | ✅ | assertion_method, confidence, source_artifact_refs[], asserted_by_principal_type/id, model_identifier, asserted_at, verification_state. |
+| Relationships typed | ✅ | verified_through (verification_event) cardinated. |
+| State machine | ⬜ | verification_state is a projection of verification_event records, not an owned lifecycle. |
+| Cross-ref integrity | ✅ | Embedded on owners (cad_model, derived_view, manufacturing_feature; staged on characteristic, measurement_result). |
+| Standards provenance | ⬜ | Pure Layer-2; conceptual prior art W3C PROV-O. |
+| Composition rule | ✅ | Cross-cutting value-object, not a top-level entity (Decision 1.10) — the same reasoning that rejected the `item` supertype in 1.9. |
+| Canonical framing | ✅ | Generalizes the legacy inline fields characteristic.source / extraction_confidence and measurement_result.source_type. |

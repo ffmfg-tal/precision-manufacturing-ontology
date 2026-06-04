@@ -12,11 +12,18 @@
 # Updated: 2026-05-16 (consumable_inventory entity — 1 new entity; 3 new edges;
 #   edges extracted from schemas/consumable_inventory.yaml and field addition
 #   to schemas/tool_room.yaml cutter_definition.tracked_in_inventory)
+# Updated: 2026-05-31 (provenance & verification + design ingestion — 5 new entities;
+#   21 new edges (17 active from new schemas + 4 staged for implementation codegen);
+#   edges from schemas/cad_model.yaml, derived_view.yaml, manufacturing_feature.yaml,
+#   verification_event.yaml, provenance.yaml. Decision 1.10. NOTE: the pre-existing
+#   117→128 entity backlog in entity-inventory.yaml is unchanged by this update.)
 #
 # Machine-readable enumeration of every edge in the ontology. Consumed by
 # agent traversal, graph visualization, and downstream deepening tasks.
 #
-# Total edges: 389 (355 prior + 31 added 2026-04-26 + 3 added 2026-05-16)
+# Total edges: 409 actual (21 added 2026-05-31: 17 active from new schemas + 4 staged).
+#   Prior running tally in this header was approximate (claimed 389; actual prior was 388) —
+#   the 2026-05-31 count is a true list count.
 #
 # Extraction sources (see 'source' field values):
 #   - archetype_a / archetype_b / archetype_c: edges derived from the
@@ -2695,3 +2702,132 @@ relationships:
     verb: assessed_by
     cardinality: many-to-one
     source: [schemas/corrective_action.yaml]
+
+  # ============================================================
+  # PROVENANCE & VERIFICATION + DESIGN INGESTION (2026-05-31, Decision 1.10)
+  # Edges from schemas/cad_model.yaml, derived_view.yaml, manufacturing_feature.yaml,
+  # verification_event.yaml, provenance.yaml. Walk 8 exercises this segment.
+  # Edges marked source [staged] correspond to field additions specified in
+  # extensions/provenance-and-verification.md that land with implementation codegen.
+  # ============================================================
+
+  - from: cad_model
+    to: part_specification
+    verb: models_specification
+    cardinality: many-to-one
+    source: [schemas/cad_model.yaml, reference/composition-archetypes.md]
+
+  - from: cad_model
+    to: part
+    verb: of_part
+    cardinality: many-to-one
+    source: [schemas/cad_model.yaml]
+
+  - from: cad_model
+    to: derived_view
+    verb: has_views
+    cardinality: one-to-many
+    source: [schemas/cad_model.yaml, schemas/derived_view.yaml]
+
+  - from: cad_model
+    to: manufacturing_feature
+    verb: grounds_features
+    cardinality: one-to-many
+    source: [schemas/cad_model.yaml, schemas/manufacturing_feature.yaml]
+
+  - from: derived_view
+    to: cad_model
+    verb: derived_from
+    cardinality: many-to-one
+    source: [schemas/derived_view.yaml]
+
+  - from: manufacturing_feature
+    to: part
+    verb: on_part
+    cardinality: many-to-one
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: manufacturing_feature
+    to: cad_model
+    verb: grounded_in
+    cardinality: many-to-one
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: manufacturing_feature
+    to: operation
+    verb: realized_by
+    cardinality: one-to-many
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: manufacturing_feature
+    to: characteristic
+    verb: constrained_by
+    cardinality: one-to-many
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: manufacturing_feature
+    to: measurement_result
+    verb: inspected_by
+    cardinality: one-to-many
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: manufacturing_feature
+    to: verification_event
+    verb: verified_by
+    cardinality: one-to-many
+    source: [schemas/manufacturing_feature.yaml]
+
+  - from: verification_event
+    to: manufacturing_feature
+    verb: verifies_feature
+    cardinality: many-to-one
+    source: [schemas/verification_event.yaml]
+
+  - from: verification_event
+    to: characteristic
+    verb: verifies_characteristic
+    cardinality: many-to-one
+    source: [schemas/verification_event.yaml]
+
+  - from: verification_event
+    to: user
+    verb: performed_by
+    cardinality: many-to-one
+    source: [schemas/verification_event.yaml]
+
+  - from: verification_event
+    to: verification_event
+    verb: supersedes
+    cardinality: one-to-one
+    source: [schemas/verification_event.yaml]
+
+  - from: provenance
+    to: verification_event
+    verb: verified_through
+    cardinality: one-to-many
+    source: [schemas/provenance.yaml]
+
+  # Staged edges — land with implementation codegen (field additions on existing entities)
+  - from: characteristic
+    to: manufacturing_feature
+    verb: constrains_feature
+    cardinality: many-to-one
+    source: [staged]  # characteristic.manufacturing_feature_id — extensions/provenance-and-verification.md
+
+  - from: part_specification
+    to: cad_model
+    verb: has_model
+    cardinality: one-to-many
+    source: [staged]  # part_specification.cad_model_id — extensions/provenance-and-verification.md
+
+  - from: measurement_result
+    to: manufacturing_feature
+    verb: measures_feature
+    cardinality: many-to-one
+    source: [staged]  # measurement_result.manufacturing_feature_id — extensions/provenance-and-verification.md
+
+  - from: operation
+    to: manufacturing_feature
+    verb: produces_feature
+    cardinality: one-to-many
+    source: [staged]  # operation.produces_feature_ids[] — extensions/provenance-and-verification.md

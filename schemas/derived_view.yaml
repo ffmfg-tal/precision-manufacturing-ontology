@@ -1,0 +1,75 @@
+# schemas/derived_view.yaml
+#
+# Layer-1 coverage: NONE. No Layer-1 standard models a rendered or projected view generated
+#   from a 3D model for the purpose of human or AI consumption. STEP carries the model;
+#   the views derived from it for feature recognition or review are a manufacturer-layer
+#   artifact with their own provenance (they are generated, not authored).
+#
+# Prose source: extensions/provenance-and-verification.md (Design Ingestion),
+#               reference/composition-archetypes.md (Walk 8)
+#
+# Architectural decisions:
+#   Decision 1.10: derived_view exists because AI feature recognition is multimodal — the model
+#                  "sees" the part through rendered isometric/orthographic/section views the same
+#                  way a machinist does. A derived_view is the visual grounding artifact an
+#                  AI_Inferred assertion cites in its provenance.source_artifact_refs. It is
+#                  generated_from a cad_model (provenance), never authored standalone.
+#
+# Entities: derived_view
+
+entities:
+
+  derived_view:
+    description: >
+      A rendered or projected 2D view generated from a cad_model — isometric, orthographic,
+      section, detail, exploded, or annotated. Used as multimodal input for AI feature recognition
+      and as a human-review surface. Its value in the provenance model is as a grounding artifact:
+      an AI_Inferred feature assertion cites the specific derived_view(s) the model reasoned over,
+      making the inference auditable ("the AI called this a pocket from the section view SEC-A").
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the view is generated
+      cad_model_id:
+        type: uuid
+        required: true
+        description: FK → cad_model.id — the model this view was generated from
+      view_type:
+        type: enum
+        required: true
+        values: [Isometric, Orthographic_Front, Orthographic_Top, Orthographic_Right, Orthographic_Back, Section, Detail, Exploded, Annotated]
+        description: The kind of view. Section/Detail views are essential for internal/occluded features invisible in isometrics.
+      section_definition:
+        type: string
+        required: false
+        description: For Section/Detail views — the cutting plane or detail callout
+        examples: ["Section A-A through bore axis", "Detail B (4x) at corner pocket"]
+      image_ref:
+        type: string
+        required: false
+        description: Path or URL to the rendered image (ITAR-controlled storage when applicable)
+        examples: ["views/7832-001-RevC-iso.png", "views/7832-001-RevC-secA.png"]
+      generated_by:
+        type: enum
+        required: true
+        values: [Kernel_Render, CAM_Screenshot, Manual_Export]
+        description: How the view was produced — programmatic kernel render, CAM-system screenshot, or manual export
+      purpose:
+        type: enum
+        required: false
+        values: [AI_Feature_Recognition, Human_Review, Documentation, Setup_Sheet]
+        description: Why the view was generated — drives retention and resolution requirements
+      provenance:
+        type: object
+        required: false
+        description: >
+          Embedded provenance value-object (schemas/provenance.yaml). assertion_method = Computed
+          (the view is deterministically rendered from the model); source_artifact_refs cites the
+          cad_model; asserted_by is the rendering principal.
+
+    relationships:
+      derived_from:
+        target: cad_model
+        cardinality: many-to-one
+        description: The model this view was rendered from
