@@ -63,7 +63,7 @@ A new contributor, human or agent, can reach any entity in two hops from here.
 
 **References:**
 - [`standards/`](standards/) — Layer 1 briefs.
-- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (409 edges; current as of 2026-05-31).
+- [`reference/relationship-graph.yaml`](reference/relationship-graph.yaml) — machine-readable cross-entity links (418 edges; current as of 2026-06-04).
 - [`implementations/`](implementations/) — reference mappings to Carbon, Fulcrum, and a template for future systems.
 - [`reference/carbon-novelty-2026-04.md`](reference/carbon-novelty-2026-04.md) — latest Carbon scan findings.
 - [`docs/department-head-briefing.md`](docs/department-head-briefing.md) — slide-shaped briefing on the four-layer model, audit history, and queues.

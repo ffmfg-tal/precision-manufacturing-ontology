@@ -302,7 +302,7 @@ No Layer-1 standard defines ECN or deviation/waiver as data entities. AS9100 §8
 ### QMS Compliance-Trail Extension (AS9100D Layer, 2026-04-26)
 
 **What this covers:**
-AS9100D §8.1.1 (operational risk), §9.2 (internal audit), §10.2 (corrective action), and §10.3 (continual improvement) require a set of documented process records that sit above the product manufacturing layer. These entities do not participate in the composition test — a part decomposition walk does not pass through them. Their purpose is to provide the QMS evidence record that supports AS9100D certification: risk assessments per contract, CAPA lifecycle, internal audit plans and findings, and lessons learned for continual improvement.
+AS9100D §7.5 (control of documented information), §8.1.1 (operational risk), §9.2 (internal audit), §10.2 (corrective action), and §10.3 (continual improvement) require a set of documented process records that sit above the product manufacturing layer. These entities do not participate in the composition test — a part decomposition walk does not pass through them. Their purpose is to provide the QMS evidence record that supports AS9100D certification: risk assessments per contract, CAPA lifecycle, internal audit plans and findings, and lessons learned for continual improvement.
 
 **Composition-test framing note:** These entities reference composition entities (job, NCR, FAI, customer_purchase_order) but are not themselves nodes in any archetype walk. The ontology's composition test (can a real aerospace part be decomposed end-to-end?) remains the measuring stick for schema completeness. These entities answer a different question: can the QMS compliance evidence record be structured and traced? Both questions matter; they measure different dimensions of the spec.
 
@@ -312,6 +312,9 @@ AS9100D §8.1.1 (operational risk), §9.2 (internal audit), §10.2 (corrective a
 - `audit_finding` — individual audit finding (Nonconformity / Observation / OFI); AS9100D clause reference; triggers corrective_action for Nonconformity findings
 - `lessons_learned` — §10.3 continual improvement capture; polymorphic source FK; `applicable_processes[]` and `applicable_part_families[]` for filtering to future work
 - `operational_risk_assessment` — §8.1.1 risk and opportunity record per PO or job; polymorphic subject FK; likelihood × consequence risk score; mitigation plan and residual risk acceptance
+
+**Controlled-document register (§7.5, schema `schemas/tracked_document.yaml`, added 2026-04-28):**
+- `tracked_document` — §7.5 control of documented information: the canonical register for QMS procedures and work instructions, the quality manual, customer quality manuals and T&Cs, customer-cited specs, supplier quality requirements and NDAs, training material, and external references. Polymorphic by subject (Decision 1.9); `revision` / `approval_state` / `supersedes_id` / `superseded_by_id` carry the §7.5.2 review-and-approval and §7.5.3 obsolescence trail. Deliberately distinct from `certification_document` (a record of external evidence against a material lot or process run).
 
 **Prose narrative:** `extensions/as9100-qms-layer.md`
 
