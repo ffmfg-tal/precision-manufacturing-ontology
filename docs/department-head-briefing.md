@@ -292,7 +292,7 @@ If a case is novel, risky, sensitive, or trust-heavy, the system should surface 
 
 The end state we are building toward is **human-supported AI**: the AI runs the routine loop of a department end to end, and the human's job concentrates into verification, judgment, and ownership of AI-produced work — moving from *doing the work* to *owning and signing the work*.
 
-The key point for department heads: **the human verification step is not a temporary crutch that disappears when the AI gets good.** In our world (AS9100, ITAR) it is permanent — it is the signed, auditable seam where your accountability attaches. What changes is not whether you're in the loop; it's that you move to the top of the loop. The system is being built so that seam is always there and always inspectable.
+The key point for department heads: **what is permanent is your accountability, not the chore of checking everything.** As the AI earns its track record, the verifying narrows from *everything* to the exceptions — and where it proves demonstrably safer than doing it by hand, you should lean on it (autopilot, not the pilot). What never goes away is the signed, auditable seam where *you* own the outcome. In our world (AS9100, ITAR) that seam is structural — it answers to a regulator and a customer, not to how good the AI gets. What changes is not whether you're in the loop; it's that you move to the top of the loop. The system is being built so that seam is always there and always inspectable.
 
 **Concrete example (Engineering@):** a customer sends a 3D model and a drawing. The AI recognizes the features, reads the GD&T, and proposes a routing — every item stamped with how it knows and how confident it is, dimensions measured off the model (never guessed). The engineer reviews and signs; conflicts (e.g., a thread the AI couldn't read off geometry) are surfaced, not buried. That signed review is the record. That is the CAM-programming front of the thread becoming a human-supported-AI loop.
 
@@ -365,7 +365,7 @@ It is:
 - your department logic made visible
 - your best judgment turned into reusable structure
 - your history made inspectable
-- routine office overhead pushed down into software and AI
+- routine work pushed down into software and AI as fast as it's made legible
 - humans freed up for ownership, relationships, and improvement
 
 ---
