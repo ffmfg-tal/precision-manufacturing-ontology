@@ -1,0 +1,208 @@
+# schemas/drawing_extraction.yaml
+#
+# Layer-1 coverage: NONE.
+#   No Layer-1 standard (STEP AP242, QIF, MTConnect, X12 EDI, ISA-95) defines an
+#   AI-extraction result over an engineering drawing. QIF covers measured results,
+#   not requirements extracted from a print at quote time. Pure manufacturer-layer
+#   (Layer-2) entity.
+#
+# Architectural decisions:
+#   drawing_extraction is DERIVED content, not asserted truth. It records one AI
+#     extraction run over a drawing/model attachment: the structured extraction
+#     (printed data with per-field confidence), a complexity assessment, and
+#     requirement flags with business-impact estimates. It can be re-run when the
+#     prompt or model changes; model_version + prompt_version make runs comparable.
+#     This is the quoting-phase sibling of the design-ingestion layer
+#     (cad_model / derived_view / manufacturing_feature, Decision 1.10) — the
+#     epistemic posture matches: AI-inferred content is confirmed by a human
+#     before it drives business records.
+#   On confirmation, the production system upserts a part record from the
+#     confirmed extraction data and promotes the source rfq_attachment into
+#     print_file (schemas/process_engineering.yaml) — the long-lived drawing
+#     record. print_file_id is populated at that point; rfq_attachment_id remains
+#     as the quoting-phase reference.
+#   has_3d_inputs records whether rendered 3D inputs (ISO views + bounding box)
+#     were available at extraction time. 2D-only extractions are flagged for
+#     human review — 2D alone is not sufficient input for defensible complexity
+#     and cycle-time estimates.
+#   extraction_json / complexity_json / flags are stored as opaque structured
+#     JSON at this layer (same posture as nested sub-schemas elsewhere); their
+#     internal shape is versioned by prompt_version and validated in domain code.
+#
+# State machine: Required (extraction run is lifecycle-bearing).
+#   States: Pending → Running → Complete → Confirmed | Failed (retryable)
+#   Terminal states: Confirmed
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   rfq_attachment is defined in schemas/rfq.yaml — referenced by
+#     drawing_extraction.rfq_attachment_id
+#   print_file is defined in schemas/process_engineering.yaml — referenced by
+#     drawing_extraction.print_file_id after confirmation
+#   user is defined in schemas/user.yaml — referenced by confirmed_by
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/rfq.yaml, schemas/quote.yaml, schemas/quote_line.yaml,
+#                  schemas/process_engineering.yaml (print_file)
+#
+# Entities: drawing_extraction
+
+entities:
+
+  drawing_extraction:
+    description: >
+      The result of one AI extraction run over an engineering drawing or 3D model
+      attached to an RFQ. Captures the structured extraction (part identity,
+      material, finish, heat treat, dimensions, GD&T, notes — with per-field
+      confidence), a complexity assessment (suggested work centers, complexity
+      rating, suggested routing, risk factors), and requirement flags
+      (missing / ambiguous / conflicting callouts with estimated business impact).
+      Derived, re-runnable content: a human confirms it before it drives part
+      creation or quote lines. On confirmation the source attachment is promoted
+      to a print_file record and a part is upserted from the confirmed data.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the extraction run is created
+      rfq_attachment_id:
+        type: uuid
+        required: true
+        description: "FK → rfq_attachment.id — the drawing/model this extraction ran against (quoting-phase reference)"
+      print_file_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → print_file.id — populated on confirmation, when the attachment is promoted to the long-lived drawing record"
+      extraction_json:
+        type: object
+        required: false
+        description: >
+          Structured extraction of printed data with per-field confidence — part
+          number, revision, drawing number, title, material callout, finish/coating,
+          heat treat, critical dimensions, GD&T, general notes, special requirements.
+          Shape is versioned by prompt_version; validated in domain code.
+      complexity_json:
+        type: object
+        required: false
+        description: >
+          Complexity assessment — suggested work centers, complexity rating,
+          suggested routing outline, risk factors, first-time-part (NPI) flag.
+          Input to probabilistic cost estimation on the quote line.
+      flags:
+        type: object[]
+        required: false
+        description: >
+          Requirement flags mined from the drawing — one entry per issue. Each flag
+          carries a flag_type (missing / ambiguous / conflicting / obsolete /
+          non_standard / risk), a description, and an estimated business-impact
+          range in currency units. Flags gate quoting on unresolved high-impact items.
+      overall_confidence:
+        type: number
+        required: false
+        description: Aggregate extraction confidence, 0.0–1.0
+      model_version:
+        type: string
+        required: false
+        description: AI model identifier used for this run (for quality correlation across runs)
+      prompt_version:
+        type: string
+        required: false
+        description: Extraction prompt version used for this run (for quality correlation across runs)
+      has_3d_inputs:
+        type: boolean
+        required: true
+        default: false
+        description: >
+          Whether rendered 3D inputs (six ISO views + bounding box) were available
+          at extraction time. False = 2D-only extraction, flagged for human review.
+      status:
+        type: enum
+        required: true
+        values:
+          - Pending
+          - Running
+          - Complete
+          - Failed
+          - Confirmed
+        description: Current lifecycle state of this extraction run
+      confirmed_by:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → user.id — estimator who reviewed and confirmed the extraction"
+      confirmed_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: When the extraction was confirmed
+      extraction_cost:
+        type: number
+        required: false
+        description: AI inference cost incurred by this run (operational telemetry)
+      currency:
+        type: string
+        required: false
+        default: "USD"
+        description: ISO 4217 currency code for extraction_cost and flag impact ranges
+
+    state_machine:
+      description: >
+        Extraction run lifecycle. Failed runs may be retried (Failed → Running).
+        Confirmed is the only terminal state — it is the human-accountability gate
+        before extraction data drives part creation and quote lines.
+      initial_state: Pending
+      terminal_states: [Confirmed]
+      states:
+        Pending:
+          description: Extraction requested; not yet started (may be held awaiting 3D inputs)
+        Running:
+          description: AI extraction in progress
+        Complete:
+          description: Extraction finished; awaiting human review
+        Failed:
+          description: Extraction errored; may be retried
+        Confirmed:
+          description: >
+            Estimator reviewed, edited, and confirmed the extraction. Part upserted
+            from confirmed data; attachment promoted to print_file.
+      transitions:
+        - from: Pending
+          to: Running
+          trigger: Extraction worker picks up the run (3D inputs present, or 2D-only mode accepted)
+        - from: Running
+          to: Complete
+          trigger: AI extraction returns a structured result
+        - from: Running
+          to: Failed
+          trigger: Extraction errors (model failure, unreadable input)
+        - from: Failed
+          to: Running
+          trigger: Retry requested (same or updated model/prompt version)
+        - from: Complete
+          to: Confirmed
+          trigger: Estimator confirms the reviewed extraction
+        - from: Complete
+          to: Running
+          trigger: Re-run requested with a newer prompt or model version before confirmation
+
+    relationships:
+      extracted_from_attachment:
+        target: rfq_attachment
+        cardinality: many-to-one
+        description: The drawing/model attachment this extraction ran against
+      promoted_to_print_file:
+        target: print_file
+        cardinality: many-to-one
+        nullable: true
+        description: The long-lived drawing record created on confirmation
+      confirmed_by_user:
+        target: user
+        cardinality: many-to-one
+        nullable: true
+        description: Estimator who confirmed the extraction
+      drives_quote_lines:
+        target: quote_line
+        cardinality: one-to-many
+        nullable: true
+        description: Quote lines seeded from this extraction's confirmed data

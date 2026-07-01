@@ -1,0 +1,100 @@
+# schemas/operation_template.yaml
+#
+# Layer-1 coverage: NONE.
+#   Reusable quoting operation defaults are a manufacturer-layer concern; no
+#   Layer-1 standard covers estimating templates. Layer-2 entity.
+#
+# Architectural decisions:
+#   operation_template is a REGISTER entity (like cutter_definition and
+#     tracked_document) — a catalog of reusable operation definitions the
+#     estimator seeds quote_operation rows from. It carries default setup/run
+#     values and default rates; the seeded quote_operation snapshot-copies and
+#     then owns its values (editing a template never mutates existing quotes).
+#   Deliberately DISTINCT from operation (schemas/routing.yaml): operation is a
+#     released process-plan step for a specific part routing; operation_template
+#     is a quoting-time default with no part binding. When a won quote becomes a
+#     job, real routing operations are authored in process engineering — the
+#     template is an estimating convenience, not a routing source of truth.
+#   variables carries template-specific parameterization (e.g. per-feature time
+#     adders) as opaque structured JSON, validated in domain code.
+#   Not lifecycle-bearing: is_active carries soft retirement; no state machine.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote_operation is defined in schemas/quote_line.yaml — references
+#     operation_template.id via operation_template_id
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/quote_line.yaml, schemas/shop_rate.yaml,
+#                  schemas/routing.yaml (operation — distinct entity)
+#
+# Entities: operation_template
+
+entities:
+
+  operation_template:
+    description: >
+      A reusable operation definition for estimating — the catalog entry an
+      estimator seeds quote_operation rows from. Carries default setup minutes,
+      default run rate, and default labor/machine rates for a named operation on
+      a work center. Distinct from operation (schemas/routing.yaml), which is a
+      released process-plan step bound to a part routing; the template is a
+      quoting-time default with no part binding. Seeded quote operations copy
+      the defaults and own their values thereafter.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the template is created
+      name:
+        type: string
+        required: true
+        description: Template name
+        examples: ["5-axis mill", "CNC lathe", "Wire EDM", "Deburr / bench"]
+      work_center:
+        type: string
+        required: false
+        description: Default work center name for operations seeded from this template
+      default_setup_mins:
+        type: number
+        required: false
+        description: Default setup minutes
+      default_run_rate_mins:
+        type: number
+        required: false
+        description: Default run minutes per piece
+      default_labor_rate:
+        type: number
+        required: false
+        description: Default fully-burdened labor rate per hour (overridden by the current shop_rate when present)
+      default_machine_rate:
+        type: number
+        required: false
+        description: Default machine rate per hour (overridden by the current shop_rate when present)
+      is_outside_service:
+        type: boolean
+        required: true
+        default: false
+        description: True when this template represents an outside (vendor) step
+      variables:
+        type: object
+        required: false
+        description: >
+          Template-specific parameterization as structured JSON (e.g. per-feature
+          time adders, material-class multipliers). Validated in domain code.
+      sort_order:
+        type: integer
+        required: false
+        description: Display order in the template picker
+      is_active:
+        type: boolean
+        required: true
+        default: true
+        description: False retires the template from pickers without deleting history
+
+    relationships:
+      seeds_quote_operations:
+        target: quote_operation
+        cardinality: one-to-many
+        nullable: true
+        description: Quote operations seeded from this template

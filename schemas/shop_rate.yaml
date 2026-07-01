@@ -1,0 +1,87 @@
+# schemas/shop_rate.yaml
+#
+# Layer-1 coverage: NONE.
+#   Shop hourly rates are internal business data; no Layer-1 standard applies.
+#   Layer-2 entity.
+#
+# Architectural decisions:
+#   shop_rate is a REGISTER entity — the maintained table of fully-burdened
+#     hourly rates per work center that feeds quote cost calculation.
+#     labor_rate = (salary + benefits + payroll taxes + overhead allocation) per
+#     productive hour; machine_rate = (depreciation + maintenance + tooling
+#     budget + power + consumables) per available hour. combined_rate exists for
+#     operations that bundle the two.
+#   Rates are keyed by work center NAME at this layer (matching how quoting
+#     references work centers pre-order); a future pass may bind shop_rate to
+#     the canonical work_center entity (schemas/routing.yaml) once quoting and
+#     routing share a work-center vocabulary.
+#   effective_at supports scheduled rate changes; historical cost calculations
+#     recalculate at the rate in effect when the quote was sent (deliberately,
+#     via record history) rather than silently using current rates.
+#   Not lifecycle-bearing: no state machine.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote_operation is defined in schemas/quote_line.yaml — resolves its
+#     labor_rate / machine_rate defaults from shop_rate by work center
+#   work_center is defined in schemas/routing.yaml — candidate future FK target
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/quote_line.yaml, schemas/operation_template.yaml,
+#                  schemas/routing.yaml (work_center)
+#
+# Entities: shop_rate
+
+entities:
+
+  shop_rate:
+    description: >
+      The fully-burdened hourly rate record for one work center — the business
+      data that turns estimated minutes into estimated cost. One current row per
+      work center; labor and machine components are kept separate so labor-only
+      stations (deburr, assembly) and machine-dominant stations (5-axis, EDM)
+      cost correctly. Reviewed periodically or when underlying costs change.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the rate row is created
+      work_center:
+        type: string
+        required: true
+        description: Work center name this rate applies to (one current rate per work center)
+        examples: ["CNC 5-axis", "CNC lathe", "Wire EDM", "Deburr / bench", "Inspection / CMM"]
+      labor_rate:
+        type: number
+        required: true
+        description: Fully-burdened labor rate per hour (salary + benefits + payroll taxes + overhead allocation)
+      machine_rate:
+        type: number
+        required: true
+        description: Machine rate per hour (depreciation + maintenance + tooling budget + power + consumables); zero for labor-only stations
+      combined_rate:
+        type: number
+        required: false
+        description: labor_rate + machine_rate, for operations that bundle the two
+      currency:
+        type: string
+        required: false
+        default: "USD"
+        description: ISO 4217 currency code for the rates
+      effective_at:
+        type: datetime
+        required: false
+        description: When this rate takes effect (supports scheduled rate changes)
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      rates_work_center:
+        target: work_center
+        cardinality: many-to-one
+        nullable: true
+        description: >
+          The canonical work center this rate applies to. Name-keyed at this
+          layer; candidate for a hard FK once quoting and routing share a
+          work-center vocabulary.
