@@ -8,6 +8,11 @@
 #   cad_model, derived_view, manufacturing_feature, verification_event) — reached 132 entries.
 # Updated: 2026-06-04 (tracked_document — AS9100D §7.5 controlled-document register, schema
 #   authored 2026-04-28, integrated here; file now holds 133 entries).
+# Updated: 2026-07-01 (Sales and Quoting vertical — 14 new entries, DRAFT pending review:
+#   rfq, rfq_attachment, drawing_extraction, quote, quote_line, quote_operation,
+#   quote_material, quote_outside_processing, quote_purchased_component,
+#   quote_inspection, quote_line_quality_clause, quote_addon, operation_template,
+#   shop_rate; file now holds 147 entries).
 # Source: reference/composition-archetypes.md + extensions/*.md + reference/domain-map.md + schemas/*.yaml
 #
 # Purpose: machine-readable union of every entity the ontology touches. Feeds the
@@ -1218,3 +1223,114 @@ inventory:
       - reference/composition-archetypes.md  # Walk 8: [Provenance] embedded on features/characteristics
     has_schema: schemas/provenance.yaml  # value-object / mixin — embedded, no standalone identity
     notes: "Cross-cutting VALUE-OBJECT (mixin), not a top-level identified entity — NOT counted in the entity total. Embedded on any asserted entity. Generalizes the pre-existing inline fields characteristic.source / extraction_confidence and measurement_result.source_type. assertion_method ∈ {Measured, Computed, AI_Inferred, Human_Authored, Standard_Parsed, Legacy_Imported}; a feature's geometric dimensions must be Computed or Measured (never AI_Inferred), while a characteristic's requirements (tolerances/GD&T/datums) are AI_Inferred from the drawing and verified. Decision 1.10."
+
+  # ============================================================
+  # Sales and Quoting vertical (2026-07-01) — DRAFT pending review.
+  # RFQ intake, AI drawing extraction, quote header + cost-component
+  # children, estimating templates and shop rates. The head of the
+  # commercial chain: rfq → drawing_extraction → quote → sales_order.
+  # Prose: reference/domain-map.md §6 (Sales and Quoting).
+  # ============================================================
+
+  - name: drawing_extraction
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/drawing_extraction.yaml  # canonical schema (Quoting vertical 2026-07-01)
+      - reference/domain-map.md  # Section 6 — Sales and Quoting
+    has_schema: schemas/drawing_extraction.yaml
+    notes: "DERIVED, re-runnable AI extraction result over an RFQ drawing/model attachment: structured printed data with per-field confidence, complexity assessment, and requirement flags with business-impact estimates. model_version + prompt_version make runs comparable; has_3d_inputs flags 2D-only runs for review. State machine: Pending → Running → Complete → Confirmed (terminal); Failed retryable. On confirm, a part is upserted and the attachment is promoted to print_file (schemas/process_engineering.yaml). Quoting-phase sibling of the Decision 1.10 design-ingestion layer. Schema: schemas/drawing_extraction.yaml (Quoting vertical)."
+
+  - name: operation_template
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/operation_template.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/operation_template.yaml
+    notes: "Register entity (not lifecycle-bearing) — reusable estimating operation definition with default setup/run minutes and default rates. Deliberately distinct from operation (schemas/routing.yaml), which is a released process-plan step bound to a part routing. quote_operation rows snapshot-copy template defaults on seeding; editing a template never mutates existing quotes. Schema: schemas/operation_template.yaml (Quoting vertical)."
+
+  - name: quote
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote.yaml  # canonical schema (Quoting vertical 2026-07-01)
+      - reference/domain-map.md  # Section 6 — Sales and Quoting
+    has_schema: schemas/quote.yaml
+    notes: "Outbound quotation — priced, termed response to an rfq. Distinct entity from sales_order (revision chains, win/loss tracking, expiry, no-quote disposition have no SO analogue); a won quote converts to a sales_order via won_sales_order_id back-reference, matching the customer_purchase_order.sales_order_id pattern. Linear revisions (single parent_quote_id; letter increments A → B → C; prior record → Revised, terminal). itar_controlled mirrors part/sales_order. State machine: Draft → Sent → Won | Lost | Expired | Revised; Draft → No_Quote. Schema: schemas/quote.yaml (Quoting vertical)."
+
+  - name: quote_addon
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "NRE / tooling / fixture / programming add-on charge on a quote_line — skilled-labor work priced like value-add, presented separately from unit pricing. addon_type enum: nre | tooling | fixture | programming | other; is_recurring distinguishes per-order from one-time program charges. Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_inspection
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "Inspection requirements + costs for a quote_line (1:1) — value-add bucket. FAI cost driven by drawing dimension count; source inspect, CMM, and 100% (every-piece) inspection individually costed. Boolean requirement flags (is_fai_required, is_source_inspect, is_cmm_required, is_100_inspection) feed the SO's quality_flowdown_plan on quote win. Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_line
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+      - reference/domain-map.md  # Section 6 — Sales and Quoting
+    has_schema: schemas/quote_line.yaml
+    notes: "One line per part or assembly on a quote. Carries denormalized part identity until part_id/print_file_id resolve at extraction confirm, quantity + yield_pct → make_quantity, qty_breaks tiers, per-bucket markup percentages implementing the pass-through vs value-add pricing split (markup_material/outside/purchased_pct = pass-through handling; markup_inside_pct = value-add margin), and per-line compliance facts that propagate to the SO line on win (itar_controlled, trace_requirement none|lot|serial|both, special_packaging_notes). Cost detail lives in child entities; cost calc is a pure domain operation. Not lifecycle-bearing (lifecycle on quote header). Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_line_quality_clause
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+      - schemas/quality.yaml  # quality_clause FK target
+    has_schema: schemas/quote_line.yaml
+    notes: "Many-to-many JOIN between quote_line and quality_clause (schemas/quality.yaml) — the structured record of clauses committed-to at quote time. source enum: customer_sqm | po_callout | drawing_note | internal. On quote win these references seed the SO's quality_flowdown_plan, so the clause cascade starts at quote time and contract review confirms rather than re-keys. Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_material
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "Material requirement costed on a quote_line — pass-through bucket. Spec + alloy + form (bar|plate|forging|casting) + stock_size, weight_per_pc × cost_per_lb → total_cost before the line's material handling markup. Quoting-time record; canonical material/material_lot records exist only once ordered. Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_operation
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "Routing operation costed on a quote_line — value-add bucket. Calculated-plus-override pattern: setup_mins_estimated / run_mins_estimated preserve AI estimates alongside estimator-adjusted costing values (calibration feedback loop). Optionally seeded from operation_template. work_center carried as name at quote time; rates resolve from shop_rate. Distinct from operation (schemas/routing.yaml — released process plan) and work_order (execution). Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_outside_processing
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "Outside-processing vendor op costed on a quote_line — pass-through bucket. unit_cost + lot_charge from vendor rate tables; lead_days feeds line lead time. nadcap_required constrains supplier selection to Nadcap-accredited processors (schemas/nadcap_certification.yaml) and feeds the SO quality_flowdown_plan on win. Quoting-time sibling of outside_process_operation (which is the job-execution hybrid entity). Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: quote_purchased_component
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/quote_line.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/quote_line.yaml
+    notes: "Bought-out catalog item costed on a quote_line — pass-through bucket. Helicoils, inserts, hardware, seals identified from drawing notes; deterministic pricing (qty_per_unit × unit_cost). Vendor carried as string at quote time (supplier approval checked at order time). Schema: schemas/quote_line.yaml (Quoting vertical)."
+
+  - name: rfq
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/rfq.yaml  # canonical schema (Quoting vertical 2026-07-01)
+      - reference/domain-map.md  # Section 6 — Sales and Quoting
+    has_schema: schemas/rfq.yaml
+    notes: "Inbound request for quotation — head of the commercial chain (rfq → drawing_extraction → quote → sales_order). Pre-commercial, distinct from customer_purchase_order. source enum: email | manual | portal; email intake promotes attachments from the email staging plane (email_ingest_message_id is an opaque Layer-3 back-reference, not a Layer-2 FK). customer_id nullable → Needs_Customer_Assignment state. State machine: New → Reviewing → Quoting → Quoted → Won | Lost; No_Quote records decline-to-quote. Schema: schemas/rfq.yaml (Quoting vertical)."
+
+  - name: rfq_attachment
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/rfq.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/rfq.yaml
+    notes: "File linked to an rfq — first-class child (not embedded array) per the packaging_item reasoning (Decision 2.4): carries independent facts (sha256 content addressing, archive-unpack provenance via source_archive_id/source_path, downstream drawing_extraction references). file_category enum: drawing | model_3d | cad_native | spreadsheet | document | archive | other. origin enum records provenance (email_ingest | manual_upload | archive_unpack). Immutable register row; not lifecycle-bearing. On extraction confirm, promoted to print_file (schemas/process_engineering.yaml) as the long-lived drawing record. Schema: schemas/rfq.yaml (Quoting vertical)."
+
+  - name: shop_rate
+    archetypes_used_in: none
+    existing_definitions:
+      - schemas/shop_rate.yaml  # canonical schema (Quoting vertical 2026-07-01)
+    has_schema: schemas/shop_rate.yaml
+    notes: "Register entity — fully-burdened hourly rate per work center (labor_rate + machine_rate kept separate; combined_rate for bundling ops). Keyed by work-center name at this layer; candidate future FK to work_center (schemas/routing.yaml) once quoting and routing share a work-center vocabulary. effective_at supports scheduled rate changes; historical quotes recalculate at the rate in effect via record history. Schema: schemas/shop_rate.yaml (Quoting vertical)."

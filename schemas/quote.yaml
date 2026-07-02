@@ -1,0 +1,285 @@
+# schemas/quote.yaml
+#
+# Layer-1 coverage:
+#   X12 843 (Response to Request for Quotation) is the EDI transmission format for
+#   an outbound quote, but — as with the outbound purchase_order — the transmission
+#   format is not the source of truth for the quote record. Per
+#   reference/domain-map.md §6, quoting is pre-commercial and not covered by any
+#   standard in a way that maps to a structured entity. Layer-2 entity.
+#
+# Architectural decisions:
+#   quote is a DISTINCT entity from sales_order, not a sub-shape of it. A quote is
+#     conceptually a draft of a sales order with cost detail attached, but the
+#     lifecycle differs enough to justify separation: revision chains (A → B → C),
+#     win/loss tracking, sent-but-not-accepted limbo, expiry, and decline-to-quote
+#     dispositions have no sales_order analogue. On win, the quote converts to a
+#     sales_order and records the back-reference (won_sales_order_id) — the same
+#     linkage pattern as customer_purchase_order.sales_order_id.
+#   Revisions are LINEAR (single parent_quote_id chain). A new revision copies all
+#     lines + children forward, increments the revision letter, and marks the
+#     prior quote Revised (terminal for that record). Branching revisions are not
+#     modeled. Multiple independent quotes for one RFQ are allowed (different
+#     manufacturing approaches quoted side by side).
+#   Pricing follows the pass-through / value-add split (markups live on
+#     quote_line, schemas/quote_line.yaml). The header carries commercial terms:
+#     validity, payment/delivery terms, lead time, expedite tiers, conditions.
+#   itar_controlled mirrors the same flag on part and sales_order — it flows
+#     through the quoting lifecycle and gates data handling from first contact.
+#   total_amount is a snapshot of the accepted cost calculation at send time;
+#     the authoritative calculation is a pure domain operation over the lines
+#     and children (persisted derived values are display/audit conveniences).
+#   Status enum note: the Review state used by earlier drafts was deliberately
+#     removed — internal review happens conversationally in Draft, not as a
+#     formal workflow state.
+#
+# State machine: Required.
+#   States: Draft → Sent → Won | Lost | Expired | Revised; Draft → No_Quote
+#   Terminal states: Won, Lost, Expired, Revised, No_Quote
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   rfq is defined in schemas/rfq.yaml — referenced by quote.rfq_id
+#   customer is defined in schemas/customer.yaml — referenced by quote.customer_id
+#   sales_order is defined in schemas/sales_order.yaml — referenced by
+#     quote.won_sales_order_id after conversion
+#   user is defined in schemas/user.yaml — referenced by assigned_to / sent_by
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/rfq.yaml, schemas/quote_line.yaml,
+#                  schemas/sales_order.yaml, schemas/customer.yaml
+#
+# Entities: quote
+
+entities:
+
+  quote:
+    description: >
+      An outbound quotation to a customer — the priced, termed response to an RFQ.
+      The quote wraps the cost model (quote_line + cost-component children) in
+      commercial terms: validity period, payment and delivery terms, lead time,
+      expedite tiers, assumptions and exclusions. Revisions form a linear chain
+      via parent_quote_id; a won quote converts to a sales_order and records the
+      back-reference. Distinct from sales_order — the quote lifecycle (revision,
+      win/loss, expiry, no-quote) has no sales-order analogue.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the quote is created
+      rfq_id:
+        type: uuid
+        required: true
+        description: "FK → rfq.id — the RFQ this quote responds to"
+      quote_number:
+        type: string
+        required: true
+        description: shop internal quote number, auto-incrementing per year
+        examples: ["Q-2026-042"]
+      revision:
+        type: string
+        required: true
+        description: Revision letter; increments on each revision of the same quote_number
+        examples: ["A", "B", "C"]
+      parent_quote_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote.id — the prior revision this quote supersedes (null for the first revision; linear single-parent chain)"
+      customer_id:
+        type: uuid
+        required: true
+        description: "FK → customer.id — the customer being quoted"
+      itar_controlled:
+        type: boolean
+        required: true
+        description: >
+          True if any quoted line involves ITAR-controlled articles or technical
+          data. Mirrors the flag on part and sales_order; flows through the
+          lifecycle and gates data handling from first contact.
+      status:
+        type: enum
+        required: true
+        values:
+          - Draft
+          - Sent
+          - Won
+          - Lost
+          - Expired
+          - Revised
+          - No_Quote
+        description: Current lifecycle state of this quote
+      validity_days:
+        type: integer
+        required: false
+        default: 30
+        description: Days the quoted pricing remains valid after sending
+      payment_terms:
+        type: string
+        required: false
+        description: Payment terms offered
+        examples: ["Net 30"]
+      delivery_terms:
+        type: string
+        required: false
+        description: Delivery terms offered
+        examples: ["FOB Origin"]
+      conditions_text:
+        type: string
+        required: false
+        description: Assumptions, exclusions, and compliance notes presented on the quote document
+      standard_lead_weeks:
+        type: integer
+        required: false
+        description: Standard lead time commitment in weeks
+      expedite_1_weeks_faster:
+        type: integer
+        required: false
+        description: Expedite tier 1 — weeks faster than standard lead
+      expedite_1_markup_pct:
+        type: number
+        required: false
+        description: Expedite tier 1 — price markup percentage
+      expedite_2_weeks_faster:
+        type: integer
+        required: false
+        description: Expedite tier 2 — weeks faster than standard lead
+      expedite_2_markup_pct:
+        type: number
+        required: false
+        description: Expedite tier 2 — price markup percentage
+      expedite_3_weeks_faster:
+        type: integer
+        required: false
+        description: Expedite tier 3 — weeks faster than standard lead
+      expedite_3_markup_pct:
+        type: number
+        required: false
+        description: Expedite tier 3 — price markup percentage
+      assigned_to:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → user.id — estimator who owns this quote"
+      sent_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: When the quote was sent to the customer
+      sent_by:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → user.id — who sent the quote"
+      win_loss_reason:
+        type: string
+        required: false
+        description: >
+          Reason captured when the quote is marked won or lost. Feeds pricing
+          strategy over time (are we losing on price, lead time, capability,
+          or relationship?).
+        examples: ["price", "lead_time", "incumbent", "capability", "unknown"]
+      win_loss_notes:
+        type: string
+        required: false
+        description: Free-text context on the win/loss (negotiation notes, actual PO price vs quote)
+      won_sales_order_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → sales_order.id — populated when the quote is marked won and the sales order is created"
+      total_amount:
+        type: number
+        required: false
+        description: >
+          Total quoted price across all lines at the base quantity tier — a
+          snapshot of the accepted cost calculation at send time. The
+          authoritative calculation is a pure domain operation over the lines.
+      currency:
+        type: string
+        required: false
+        default: "USD"
+        description: ISO 4217 currency code for total_amount and line pricing
+      pdf_artifact_key:
+        type: string
+        required: false
+        description: Blob-store key of the rendered customer-facing quote PDF
+      internal_notes:
+        type: string
+        required: false
+        description: Internal notes — never rendered on customer-facing output
+
+    state_machine:
+      description: >
+        Quote lifecycle from draft through disposition. Revised is terminal for
+        this record — the successor revision carries the live lifecycle. Expiry
+        is automatic from sent_at + validity_days. No_Quote records a
+        decline-to-quote after drafting began (pre-send).
+      initial_state: Draft
+      terminal_states: [Won, Lost, Expired, Revised, No_Quote]
+      states:
+        Draft:
+          description: Quote being built; lines and pricing in progress; internal review happens here
+        Sent:
+          description: Quote sent to the customer; awaiting decision within the validity window
+        Won:
+          description: Customer accepted; sales order created; won_sales_order_id populated
+        Lost:
+          description: Customer declined or awarded elsewhere; win_loss_reason captured
+        Expired:
+          description: Validity window lapsed without customer decision
+        Revised:
+          description: Superseded by a new revision (successor's parent_quote_id points here); read-only
+        No_Quote:
+          description: the manufacturer declined to quote after drafting began; reason captured in win_loss_notes
+      transitions:
+        - from: Draft
+          to: Sent
+          trigger: Quote sent to the customer; sent_at and sent_by recorded
+        - from: Draft
+          to: No_Quote
+          trigger: the manufacturer declines to quote before sending
+        - from: Sent
+          to: Won
+          trigger: Customer accepts; sales order created from quote lines
+          guard: won_sales_order_id populated by the conversion operation
+        - from: Sent
+          to: Lost
+          trigger: Customer declines or awards elsewhere; win_loss_reason captured
+        - from: Sent
+          to: Expired
+          trigger: Validity window lapses (automatic, from sent_at + validity_days)
+        - from: Sent
+          to: Revised
+          trigger: New revision created; lines copy forward; this record becomes read-only
+        - from: Expired
+          to: Revised
+          trigger: Customer re-engages after expiry; new revision issued from this quote
+
+    relationships:
+      responds_to_rfq:
+        target: rfq
+        cardinality: many-to-one
+        description: The RFQ this quote responds to
+      quoted_to_customer:
+        target: customer
+        cardinality: many-to-one
+        description: The customer being quoted
+      has_lines:
+        target: quote_line
+        cardinality: one-to-many
+        description: Line items on this quote (one per part or assembly)
+      supersedes_revision:
+        target: quote
+        cardinality: many-to-one
+        nullable: true
+        description: The prior revision this quote supersedes
+      converts_to_sales_order:
+        target: sales_order
+        cardinality: many-to-one
+        nullable: true
+        description: The sales order created when this quote was won
+      assigned_to_user:
+        target: user
+        cardinality: many-to-one
+        nullable: true
+        description: Estimator who owns this quote

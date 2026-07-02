@@ -1,0 +1,731 @@
+# schemas/quote_line.yaml
+#
+# Layer-1 coverage: NONE.
+#   No Layer-1 standard structures a quote's internal cost model. Per
+#   reference/domain-map.md §6, quoting is pre-commercial. Layer-2 entities.
+#
+# Architectural decisions:
+#   The cost taxonomy is the central business logic of quoting. Every cost element
+#   on a quote line is one of:
+#     - PASS-THROUGH cost (money that flows to suppliers; a handling markup covers
+#       procurement effort, incoming inspection, and inventory risk):
+#       quote_material, quote_outside_processing, quote_purchased_component
+#     - VALUE-ADD cost (what the manufacturer actually does; where the margin
+#       lives): quote_operation (machining setup + run), quote_inspection
+#       (FAI / CMM / source / 100%)
+#     - ADD-ONS (billed once per program or amortized): quote_addon
+#       (NRE, tooling, fixtures, programming)
+#   Total-GM% alone is a misleading metric when the cost mix varies (a
+#   material-heavy line and a labor-heavy line at the same total GM% have very
+#   different economics) — the split exists so value-add margin can be priced
+#   and evaluated separately from pass-through handling markups. Per-bucket
+#   markup percentages live on quote_line; the cost calculation is a pure
+#   domain operation over the line + children (persisted totals are snapshots).
+#
+#   Each cost child is a first-class entity (not an embedded array) because the
+#   children carry independent references (operation templates, quality clauses)
+#   and the quote-to-sales-order conversion maps them individually.
+#
+#   quote_line_quality_clause is a many-to-many JOIN to the existing
+#   quality_clause entity (schemas/quality.yaml). Most quality clauses are fully
+#   known at quote time (customer supplier-quality manual + drawing notes); this
+#   join is the structured record. At quote-won, these references seed the sales
+#   order's quality_flowdown_plan — the clause cascade starts at quote time, not
+#   at contract review (which then confirms it against the actual PO).
+#
+#   trace_requirement (none/lot/serial/both) and special_packaging_notes are
+#   captured per line at quote time and propagate to the sales order line — the
+#   quoting → SO → flowdown chain keeps requirements captured once, not re-keyed.
+#
+#   line_type = assembly with parent_line_id supports assembly quoting as a data
+#   shape; first-cut UIs may present flat part lines only.
+#
+#   None of these entities is lifecycle-bearing — lifecycle lives on the quote
+#   header (schemas/quote.yaml). Lines and children are editable while the quote
+#   is Draft and read-only once it leaves Draft.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote is defined in schemas/quote.yaml — referenced by quote_line.quote_id
+#   part is defined in schemas/part.yaml — referenced by quote_line.part_id
+#   print_file is defined in schemas/process_engineering.yaml — referenced by
+#     quote_line.print_file_id
+#   drawing_extraction is defined in schemas/drawing_extraction.yaml — referenced
+#     by quote_line.drawing_extraction_id
+#   quality_clause is defined in schemas/quality.yaml — referenced by
+#     quote_line_quality_clause.quality_clause_id
+#   operation_template is defined in schemas/operation_template.yaml — referenced
+#     by quote_operation.operation_template_id
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/quote.yaml, schemas/rfq.yaml,
+#                  schemas/drawing_extraction.yaml, schemas/operation_template.yaml,
+#                  schemas/quality.yaml (quality_clause)
+#
+# Entities: quote_line, quote_operation, quote_material, quote_outside_processing,
+#           quote_purchased_component, quote_inspection, quote_line_quality_clause,
+#           quote_addon
+
+entities:
+
+  quote_line:
+    description: >
+      One line item on a quote — a single part or assembly being quoted. Carries
+      part identity (denormalized from the confirmed extraction until the part
+      record exists), quantity and yield, per-bucket markup percentages
+      (pass-through vs value-add pricing), quantity-break tiers, and the
+      per-line compliance facts that propagate to the sales order on win
+      (itar_controlled, trace_requirement, special_packaging_notes). Cost detail
+      lives in the child entities (operations, material, outside processing,
+      purchased components, inspection, quality clauses, add-ons); the cost
+      calculation is a pure function over the line + children.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the line is added to the quote
+      quote_id:
+        type: uuid
+        required: true
+        description: "FK → quote.id — the quote this line belongs to"
+      line_number:
+        type: integer
+        required: true
+        description: Position of this line on the quote (1-based)
+      line_type:
+        type: enum
+        required: true
+        values: [part, assembly]
+        default: part
+        description: Whether this line quotes a discrete part or an assembly
+      parent_line_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote_line.id — parent assembly line when this line is an assembly child (null for top-level lines)"
+      part_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → part.id — canonical part record (null until the extraction is confirmed and the part is upserted)"
+      print_file_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → print_file.id — canonical drawing record (null until the extraction is confirmed)"
+      drawing_extraction_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → drawing_extraction.id — the confirmed extraction this line was seeded from"
+      part_number:
+        type: string
+        required: false
+        description: Customer part number (denormalized from extraction until part_id resolves)
+      revision:
+        type: string
+        required: false
+        description: Drawing/part revision being quoted
+      description:
+        type: string
+        required: false
+        description: Line description as rendered on the customer-facing quote
+      material_spec:
+        type: string
+        required: false
+        description: Material specification callout from the drawing
+        examples: ["AMS 4911", "AMS 5643"]
+      material_alloy:
+        type: string
+        required: false
+        description: Alloy common name
+        examples: ["Ti-6Al-4V", "17-4PH"]
+      quantity:
+        type: integer
+        required: true
+        description: Ordered quantity at the base tier (customer-requested quantity)
+      make_quantity:
+        type: integer
+        required: false
+        description: Quantity to actually manufacture after yield adjustment — ceil(quantity / (yield_pct / 100))
+      yield_pct:
+        type: number
+        required: false
+        default: 100
+        description: >
+          Expected yield percentage. Defaults by complexity class (simple 98,
+          moderate 95, complex 90, very complex 85); always overridable.
+      qty_breaks:
+        type: object[]
+        required: false
+        description: >
+          Quantity-break price tiers — one entry per tier with quantity and
+          computed unit price. Tiers reflect real economics (setup amortization,
+          volume material pricing), calculated by the cost operation and
+          adjustable by the estimator.
+      markup_material_pct:
+        type: number
+        required: false
+        description: Pass-through handling markup percentage applied to material cost
+      markup_outside_pct:
+        type: number
+        required: false
+        description: Pass-through handling markup percentage applied to outside processing cost
+      markup_purchased_pct:
+        type: number
+        required: false
+        description: Pass-through handling markup percentage applied to purchased components cost
+      markup_inside_pct:
+        type: number
+        required: false
+        description: >
+          Value-add markup percentage applied to inside processing (machining,
+          inspection, programming). This is where the manufacturer's margin
+          lives; defaults vary by material class and are always overridable.
+      finish_spec:
+        type: string
+        required: false
+        description: Finish/coating specification callout
+        examples: ["MIL-A-8625 Type III", "MIL-DTL-5541 Class 3"]
+      finish_description:
+        type: string
+        required: false
+        description: Human-readable finish description
+      finish_vendor:
+        type: string
+        required: false
+        description: Vendor performing the finish (when quoted as a line-level finish rather than a quote_outside_processing child)
+      finish_cost:
+        type: number
+        required: false
+        description: Finish cost per unit (when carried at line level)
+      unit_price:
+        type: number
+        required: false
+        description: >
+          Quoted unit price at the base quantity tier — pass-through price plus
+          value-add price. Snapshot of the accepted cost calculation; maps to the
+          sales order line unit_price on win.
+      currency:
+        type: string
+        required: false
+        default: "USD"
+        description: ISO 4217 currency code for all money fields on this line and its children
+      itar_controlled:
+        type: boolean
+        required: false
+        description: >
+          Line-level ITAR flag. Defaults to the quote header's itar_controlled;
+          settable per line so mixed-control quotes can be represented.
+      trace_requirement:
+        type: enum
+        required: false
+        values: [none, lot, serial, both]
+        description: >
+          Traceability requirement for this line. Propagates to the sales order
+          line and feeds the quality flowdown plan and traveler on win.
+      special_packaging_notes:
+        type: string
+        required: false
+        description: >
+          Customer-specific packaging/labeling requirements captured at quote
+          time; carried through to the sales order and shipping.
+      notes:
+        type: string
+        required: false
+        description: >
+          Pricing justification and line notes — first-class input, captured for
+          historical pricing analysis (why this line was priced above or below
+          defaults).
+      sort_order:
+        type: integer
+        required: false
+        description: Display order override (defaults to line_number order)
+
+    relationships:
+      belongs_to_quote:
+        target: quote
+        cardinality: many-to-one
+        description: The quote this line belongs to
+      quotes_part:
+        target: part
+        cardinality: many-to-one
+        nullable: true
+        description: The canonical part this line quotes (once resolved)
+      references_print_file:
+        target: print_file
+        cardinality: many-to-one
+        nullable: true
+        description: The canonical drawing record for this line (once promoted)
+      seeded_from_extraction:
+        target: drawing_extraction
+        cardinality: many-to-one
+        nullable: true
+        description: The confirmed extraction this line was seeded from
+      child_of_line:
+        target: quote_line
+        cardinality: many-to-one
+        nullable: true
+        description: Parent assembly line (assembly quoting)
+      has_operations:
+        target: quote_operation
+        cardinality: one-to-many
+        description: Routing operations costed on this line (value-add)
+      has_materials:
+        target: quote_material
+        cardinality: one-to-many
+        description: Material requirements costed on this line (pass-through)
+      has_outside_processing:
+        target: quote_outside_processing
+        cardinality: one-to-many
+        description: Outside-processing vendor operations costed on this line (pass-through)
+      has_purchased_components:
+        target: quote_purchased_component
+        cardinality: one-to-many
+        description: Purchased components costed on this line (pass-through)
+      has_inspection:
+        target: quote_inspection
+        cardinality: one-to-one
+        nullable: true
+        description: Inspection requirements and costs for this line (value-add)
+      commits_quality_clauses:
+        target: quote_line_quality_clause
+        cardinality: one-to-many
+        nullable: true
+        description: Quality clauses committed to at quote time (join rows to quality_clause)
+      has_addons:
+        target: quote_addon
+        cardinality: one-to-many
+        nullable: true
+        description: NRE / tooling / fixture / programming add-ons for this line
+
+  quote_operation:
+    description: >
+      A routing operation costed on a quote line — the value-add machining and
+      labor detail. Carries setup and per-piece run minutes with the labor and
+      machine rates in effect, supporting the calculated-plus-override pattern:
+      AI-estimated values are recorded alongside the estimator-adjusted values
+      used for costing. May be seeded from an operation_template. Operation cost
+      = setup_mins × rates + run_mins_per_pc × make_quantity × rates.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this operation belongs to"
+      operation_template_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → operation_template.id — template this operation was seeded from (null for ad-hoc operations)"
+      operation_name:
+        type: string
+        required: true
+        description: Operation name as shown on the cost breakdown
+        examples: ["5-axis mill", "Wire EDM", "Deburr"]
+      work_center:
+        type: string
+        required: false
+        description: >
+          Work center name this operation runs on. Carried as a name at quote
+          time; rates come from the shop_rate table for that work center.
+      setup_mins_estimated:
+        type: number
+        required: false
+        description: AI-estimated setup minutes (calculated value, preserved for calibration)
+      setup_mins:
+        type: number
+        required: true
+        description: Setup minutes used for costing (estimator-adjusted)
+      run_mins_estimated:
+        type: number
+        required: false
+        description: AI-estimated run minutes per piece (calculated value, preserved for calibration)
+      run_mins_per_pc:
+        type: number
+        required: true
+        description: Run minutes per piece used for costing (estimator-adjusted)
+      labor_rate:
+        type: number
+        required: false
+        description: Fully-burdened labor rate per hour in effect for this operation
+      machine_rate:
+        type: number
+        required: false
+        description: Machine rate per hour (depreciation + maintenance + consumables + power) in effect for this operation
+      is_outside:
+        type: boolean
+        required: true
+        default: false
+        description: >
+          True when this routing step is performed outside (vendor). Cost detail
+          for outside steps lives in quote_outside_processing; this flag keeps
+          the routing sequence complete.
+      sort_order:
+        type: integer
+        required: false
+        description: Position of this operation in the routing sequence
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this operation belongs to
+      seeded_from_template:
+        target: operation_template
+        cardinality: many-to-one
+        nullable: true
+        description: The operation template this operation was seeded from
+
+  quote_material:
+    description: >
+      A material requirement costed on a quote line — pass-through cost. Captures
+      the specification, alloy, form, and stock size, with per-piece weight and
+      cost. Stock cost derives from bounding box + cleanup allowance and
+      distributor pricing; billed at cost plus the line's material handling
+      markup.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this material belongs to"
+      specification:
+        type: string
+        required: false
+        description: Material specification
+        examples: ["AMS 4911", "AMS-QQ-A-250/12"]
+      alloy:
+        type: string
+        required: false
+        description: Alloy common name
+        examples: ["Ti-6Al-4V", "7075-T7351"]
+      form:
+        type: enum
+        required: false
+        values: [bar, plate, forging, casting]
+        description: Stock form being purchased
+      stock_size:
+        type: string
+        required: false
+        description: Stock size per piece (bounding box + cleanup allowance)
+        examples: ["2.5 dia x 6.0", "4.0 x 6.0 x 1.25 plate"]
+      weight_per_pc:
+        type: number
+        required: false
+        description: Stock weight per piece in pounds
+      cost_per_lb:
+        type: number
+        required: false
+        description: Material cost per pound (distributor pricing)
+      total_cost:
+        type: number
+        required: false
+        description: Total material cost for the line's make quantity (before markup)
+      vendor:
+        type: string
+        required: false
+        description: Distributor or mill quoted for this material
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this material requirement belongs to
+
+  quote_outside_processing:
+    description: >
+      An outside-processing vendor operation costed on a quote line — pass-through
+      cost. Heat treat, plating, anodize, NDT, coating, and similar special
+      processes performed by suppliers, costed from vendor rate tables (per-unit
+      rate plus lot charges). nadcap_required constrains supplier selection to
+      Nadcap-accredited processors and feeds the quality flowdown plan on win.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this vendor operation belongs to"
+      operation_name:
+        type: string
+        required: true
+        description: Outside process name
+        examples: ["Heat treat", "Anodize Type III", "FPI"]
+      specification:
+        type: string
+        required: false
+        description: Governing process specification
+        examples: ["AMS 2759/3", "MIL-A-8625 Type III Class 2"]
+      vendor:
+        type: string
+        required: false
+        description: Vendor quoted for this process (name at quote time; supplier approval is checked at order time)
+      unit_cost:
+        type: number
+        required: false
+        description: Cost per unit from the vendor rate table or vendor quote
+      lot_charge:
+        type: number
+        required: false
+        description: Fixed per-lot charge (amortizes across the make quantity)
+      lead_days:
+        type: integer
+        required: false
+        description: Vendor turnaround in days (feeds the line lead-time estimate)
+      nadcap_required:
+        type: boolean
+        required: true
+        default: false
+        description: >
+          True when the customer or specification requires Nadcap accreditation
+          for this process. Constrains supplier selection and feeds the sales
+          order's quality flowdown plan on win.
+      sort_order:
+        type: integer
+        required: false
+        description: Position within the line's outside-processing list
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this vendor operation belongs to
+
+  quote_purchased_component:
+    description: >
+      A purchased (bought-out) component costed on a quote line — pass-through
+      cost. Helicoils, inserts, hardware, seals, and other catalog items
+      identified from drawing notes and priced deterministically
+      (qty per finished unit × unit cost).
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this component belongs to"
+      description:
+        type: string
+        required: true
+        description: Component description
+        examples: ["Helicoil insert per MS33537", "NAS1149 washer"]
+      part_number:
+        type: string
+        required: false
+        description: Catalog or standard part number
+        examples: ["MS21209F1-15", "NAS1149F0332P"]
+      vendor:
+        type: string
+        required: false
+        description: Vendor or distributor quoted for this component
+      qty_per_unit:
+        type: integer
+        required: true
+        default: 1
+        description: Quantity of this component per finished unit
+      unit_cost:
+        type: number
+        required: false
+        description: Cost per component
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this purchased component belongs to
+
+  quote_inspection:
+    description: >
+      Inspection requirements and costs for a quote line — value-add cost. One
+      record per line (1:1). Captures the inspection level and the individually
+      costed requirements: first article inspection (cost driven by drawing
+      dimension count), source inspection, CMM programming/run, and 100%
+      inspection (every-piece inspection — a major cost driver frequently
+      required by customer supplier-quality manuals). The boolean requirement
+      flags feed the sales order's quality flowdown plan on win.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this inspection record belongs to (1:1)"
+      inspection_level:
+        type: enum
+        required: true
+        values: [standard, sample, "100_percent", source_inspect, fai, cmm]
+        default: standard
+        description: Primary inspection level for the line (the boolean flags carry the full requirement set)
+      is_fai_required:
+        type: boolean
+        required: true
+        default: false
+        description: First article inspection required (AS9102)
+      is_source_inspect:
+        type: boolean
+        required: true
+        default: false
+        description: Customer source inspection required
+      is_cmm_required:
+        type: boolean
+        required: true
+        default: false
+        description: CMM inspection required
+      is_100_inspection:
+        type: boolean
+        required: true
+        default: false
+        description: 100% (every-piece) inspection required
+      fai_dimension_count:
+        type: integer
+        required: false
+        description: Balloon/dimension count from the drawing — drives FAI cost
+      fai_cost:
+        type: number
+        required: false
+        description: First article inspection cost (function of dimension count)
+      source_inspect_cost:
+        type: number
+        required: false
+        description: Source inspection cost (coordination + hold time)
+      cmm_cost:
+        type: number
+        required: false
+        description: CMM programming and run cost
+      hundred_percent_inspection_cost:
+        type: number
+        required: false
+        description: 100% inspection cost across the make quantity
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this inspection record belongs to (1:1)
+
+  quote_line_quality_clause:
+    description: >
+      Many-to-many join between a quote line and a quality_clause
+      (schemas/quality.yaml) — the structured record of quality clauses being
+      committed to at quote time. Most clauses are fully known when quoting
+      (customer supplier-quality manual, PO callouts, drawing notes); capturing
+      them here means the sales order's quality_flowdown_plan is seeded from
+      these references on win rather than re-keyed at contract review. source
+      records where the clause obligation came from.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line committing to this clause"
+      quality_clause_id:
+        type: uuid
+        required: true
+        description: "FK → quality_clause.id — the quality clause being committed to (defined in schemas/quality.yaml)"
+      source:
+        type: enum
+        required: true
+        values: [customer_sqm, po_callout, drawing_note, internal]
+        description: >
+          Where the clause obligation was identified. customer_sqm = the
+          customer's supplier quality manual. po_callout = expected PO terms.
+          drawing_note = called out on the drawing. internal = the manufacturer's
+          own standard practice.
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line committing to this clause
+      references_clause:
+        target: quality_clause
+        cardinality: many-to-one
+        description: The quality clause being committed to
+      seeds_flowdown_plan:
+        target: quality_flowdown_plan
+        cardinality: many-to-one
+        nullable: true
+        description: The sales order flowdown plan seeded from this reference on quote win
+
+  quote_addon:
+    description: >
+      A non-recurring or program-level add-on charge on a quote line — NRE,
+      tooling, fixtures, programming. Skilled-labor work priced like value-add
+      and presented separately from unit pricing on the customer-facing quote.
+      is_recurring distinguishes per-order charges from one-time program charges.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this add-on belongs to"
+      name:
+        type: string
+        required: true
+        description: Add-on name as rendered on the quote
+        examples: ["First article process development", "Custom fixture design and build"]
+      addon_type:
+        type: enum
+        required: true
+        values: [nre, tooling, fixture, programming, other]
+        description: Add-on category
+      cost:
+        type: number
+        required: true
+        description: Add-on cost before markup
+      is_required:
+        type: boolean
+        required: true
+        default: true
+        description: False when the add-on is optional (quoted as a customer choice)
+      is_recurring:
+        type: boolean
+        required: true
+        default: false
+        description: True when the charge recurs per order rather than once per program
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      belongs_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this add-on belongs to

@@ -1,0 +1,285 @@
+# schemas/rfq.yaml
+#
+# Layer-1 coverage:
+#   X12 840 (Request for Quotation) and X12 843 (Response to RFQ) exist as EDI
+#   transmission formats, but aerospace machine-shop RFQ intake is overwhelmingly
+#   email-based (drawings + 3D models attached, often zipped). No Layer-1 standard
+#   governs the manufacturer's internal RFQ record. Per reference/domain-map.md §6,
+#   quoting is pre-commercial and not covered by any standard — this is a pure
+#   manufacturer-layer (Layer-2) entity pair.
+#
+# Architectural decisions:
+#   rfq is the inbound request-for-quote business object — the head of the quoting
+#     chain (rfq → drawing_extraction → quote → sales_order). It is distinct from
+#     customer_purchase_order (a commercial commitment; the RFQ is pre-commercial).
+#   rfq_attachment is a first-class child entity (not an embedded array) because
+#     attachments carry independent lifecycle facts: content-addressed storage
+#     (sha256), archive-unpack provenance (source_archive_id / source_path), and
+#     downstream references from drawing_extraction. Same reasoning as
+#     packaging_item (Decision 2.4).
+#   Attachments are content-addressed by sha256 in the production system's blob
+#     store; the same drawing received in twelve RFQs stores once. Promotion from
+#     the email staging plane copies bytes into the business-object store so the
+#     RFQ does not depend on email retention policy.
+#   customer_id is nullable — an RFQ from an unrecognized email domain is created
+#     with no customer and status Needs_Customer_Assignment; the estimator links
+#     or creates the customer during review.
+#
+# State machine: Required (rfq is lifecycle-bearing).
+#   States: New → Needs_Customer_Assignment | Reviewing → Quoting → Quoted →
+#           Won | Lost; any pre-Quoted state → No_Quote
+#   Terminal states: Won, Lost, No_Quote
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   customer is defined in schemas/customer.yaml — referenced by rfq.customer_id
+#   user is defined in schemas/user.yaml — referenced by rfq.assigned_to
+#   drawing_extraction is defined in schemas/drawing_extraction.yaml — references
+#     rfq_attachment.id
+#   quote is defined in schemas/quote.yaml — references rfq.id
+#
+# Prose source: reference/domain-map.md §6 (Sales and Quoting)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-01)
+# Sibling schemas: schemas/quote.yaml, schemas/quote_line.yaml,
+#                  schemas/drawing_extraction.yaml, schemas/customer.yaml
+#
+# Entities: rfq, rfq_attachment
+
+entities:
+
+  rfq:
+    description: >
+      An inbound request for quotation from a customer (or prospective customer).
+      The head of the quoting chain: the RFQ carries the original request context
+      (email subject/body, attachments with drawings and 3D models), gets reviewed
+      and estimated, and produces one or more quotes. Pre-commercial — distinct
+      from customer_purchase_order, which records a commercial commitment. Created
+      by promotion from the email staging plane, by manual entry, or (future) via
+      a customer portal.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted by the production system when the RFQ is declared
+      rfq_number:
+        type: string
+        required: true
+        description: shop internal RFQ number (human-friendly reference)
+        examples: ["RFQ-2026-001", "RFQ-042"]
+      customer_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → customer.id — null until the customer is resolved (unknown email domain → Needs_Customer_Assignment)"
+      source:
+        type: enum
+        required: true
+        values: [email, manual, portal]
+        description: >
+          How the RFQ arrived. email = promoted from the email staging plane.
+          manual = entered by an estimator. portal = future customer-portal intake.
+      email_ingest_message_id:
+        type: string
+        required: false
+        nullable: true
+        description: >
+          Opaque back-reference to the email staging plane's message record when
+          source = email. Lets the UI navigate to the originating email thread.
+          Not a Layer-2 FK — the staging plane is a Layer-3 system.
+      mailbox_of_origin:
+        type: string
+        required: false
+        description: Mailbox the RFQ email arrived at (when source = email)
+        examples: ["quotes@example.com"]
+      subject:
+        type: string
+        required: false
+        description: Email subject line or manual-entry title
+      body_text:
+        type: string
+        required: false
+        description: Plain-text body of the originating email (or manual-entry notes)
+      received_at:
+        type: datetime
+        required: false
+        description: When the RFQ was received (email timestamp or manual-entry time)
+      assigned_to:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → user.id — estimator assigned to work this RFQ"
+      status:
+        type: enum
+        required: true
+        values:
+          - New
+          - Needs_Customer_Assignment
+          - Reviewing
+          - Quoting
+          - Quoted
+          - Won
+          - Lost
+          - No_Quote
+        description: Current lifecycle state of this RFQ
+      notes:
+        type: string
+        required: false
+
+    state_machine:
+      description: >
+        RFQ lifecycle from receipt through quote disposition. Won/Lost mirror the
+        outcome of the furthest-along quote produced from this RFQ. No_Quote records
+        a decline-to-quote decision (capacity, capability, customer fit) — tracked
+        separately from Lost because the downstream metrics differ.
+      initial_state: New
+      terminal_states: [Won, Lost, No_Quote]
+      states:
+        New:
+          description: RFQ created; attachments promoted; not yet opened by an estimator
+        Needs_Customer_Assignment:
+          description: No customer matched at intake (unknown email domain); estimator must link or create the customer
+        Reviewing:
+          description: Estimator reviewing the request — attachments, extractions, requirements
+        Quoting:
+          description: At least one quote is being built from this RFQ
+        Quoted:
+          description: At least one quote has been sent to the customer
+        Won:
+          description: A quote produced from this RFQ was won; sales order created
+        Lost:
+          description: All quotes produced from this RFQ were lost or expired
+        No_Quote:
+          description: the manufacturer declined to quote (capacity, capability, or customer-fit reason recorded in notes)
+      transitions:
+        - from: New
+          to: Needs_Customer_Assignment
+          trigger: Intake could not resolve a customer from the sender's email domain
+        - from: New
+          to: Reviewing
+          trigger: Estimator opens the RFQ for review
+        - from: Needs_Customer_Assignment
+          to: Reviewing
+          trigger: Estimator links an existing customer or creates a new one
+        - from: Reviewing
+          to: Quoting
+          trigger: Estimator starts building a quote from this RFQ
+        - from: Reviewing
+          to: No_Quote
+          trigger: the manufacturer declines to quote
+        - from: Quoting
+          to: Quoted
+          trigger: First quote sent to the customer
+        - from: Quoting
+          to: No_Quote
+          trigger: the manufacturer abandons the quote before sending
+        - from: Quoted
+          to: Won
+          trigger: A quote from this RFQ is marked won; sales order created
+        - from: Quoted
+          to: Lost
+          trigger: All quotes from this RFQ are lost or expired
+
+    relationships:
+      received_from_customer:
+        target: customer
+        cardinality: many-to-one
+        nullable: true
+        description: The customer who sent this RFQ (null until resolved)
+      has_attachments:
+        target: rfq_attachment
+        cardinality: one-to-many
+        description: Files received with (or added to) this RFQ
+      produces_quotes:
+        target: quote
+        cardinality: one-to-many
+        nullable: true
+        description: Quotes built from this RFQ (one RFQ may produce multiple quotes/revisions)
+      assigned_to_user:
+        target: user
+        cardinality: many-to-one
+        nullable: true
+        description: Estimator assigned to this RFQ
+
+  rfq_attachment:
+    description: >
+      A file linked to an RFQ — drawing PDF, 3D model (STEP/IGES/STL), native CAD
+      file, spreadsheet, document, or archive. Content-addressed by sha256 in the
+      production system's blob store; promotion from the email staging plane copies
+      the bytes so the business artifact does not depend on email retention.
+      Attachments unpacked from an archive record their provenance via
+      source_archive_id + source_path. Not lifecycle-bearing — an immutable
+      register row once written.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the attachment row is written
+      rfq_id:
+        type: uuid
+        required: true
+        description: "FK → rfq.id — the RFQ this file belongs to"
+      filename:
+        type: string
+        required: true
+        description: Original filename as received
+        examples: ["12345-001_revB.pdf", "bracket_assy.step"]
+      content_type:
+        type: string
+        required: false
+        description: MIME type
+        examples: ["application/pdf", "model/step"]
+      size_bytes:
+        type: integer
+        required: false
+        description: File size in bytes
+      sha256:
+        type: string
+        required: true
+        description: >
+          SHA-256 hex digest of the file bytes. Content-addressing key — the same
+          drawing received in multiple RFQs stores once in the blob store.
+      r2_key:
+        type: string
+        required: true
+        description: Object key in the production system's blob store (content-addressed path derived from sha256)
+      file_category:
+        type: enum
+        required: true
+        values: [drawing, model_3d, cad_native, spreadsheet, document, archive, other]
+        description: >
+          Classified file kind. drawing = 2D print (PDF/TIFF). model_3d = neutral
+          3D format the rendering pipeline can parse (STEP/IGES/STL). cad_native =
+          proprietary CAD format (not rendered; extraction runs 2D-only).
+          archive = ZIP or similar, unpacked into further attachment rows.
+      source_archive_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → rfq_attachment.id — the archive this file was unpacked from (null if received directly)"
+      source_path:
+        type: string
+        required: false
+        description: Path of this file inside the source archive (when unpacked)
+      origin:
+        type: enum
+        required: true
+        values: [email_ingest, manual_upload, archive_unpack]
+        description: >
+          Provenance of the bytes. email_ingest = promoted from the email staging
+          plane. manual_upload = uploaded by a user. archive_unpack = produced by
+          unpacking another attachment (source_archive_id set).
+
+    relationships:
+      belongs_to_rfq:
+        target: rfq
+        cardinality: many-to-one
+        description: The RFQ this attachment belongs to
+      unpacked_from_archive:
+        target: rfq_attachment
+        cardinality: many-to-one
+        nullable: true
+        description: The archive attachment this file was extracted from
+      has_extractions:
+        target: drawing_extraction
+        cardinality: one-to-many
+        nullable: true
+        description: AI extraction runs performed against this attachment
