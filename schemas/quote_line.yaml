@@ -37,6 +37,20 @@
 #   captured per line at quote time and propagate to the sales order line — the
 #   quoting → SO → flowdown chain keeps requirements captured once, not re-keyed.
 #
+#   Cost sourcing (2026-07-03, quoting phased-workflow model): every cost-bearing
+#   child carries cost_source/cost_source_ref (quote_operation: time_source/
+#   time_source_ref + shop_rate_id) — a typed COMMERCIAL-EVIDENCE tag naming what
+#   backs the number (Fulcrum purchase history, price list, supplier quote,
+#   calibrated model estimate, or manual). This is deliberately NOT the provenance
+#   value-object (schemas/provenance.yaml, Decision 1.10): that mixin records the
+#   epistemic status of extracted/inferred/measured TECHNICAL facts with a
+#   verification lifecycle, and its references are warp-core entities. Cost sources
+#   are mostly external commercial references (ERP receipts/POs, supplier emails),
+#   need a typed enum for hot readiness queries ("how much of this quote is
+#   unsourced"), and per-write who/when already lives in the event chain. Where
+#   the provenance mixin DOES apply in quoting is drawing_extraction-derived
+#   technical facts, when those are staged onto it.
+#
 #   line_type = assembly with parent_line_id supports assembly quoting as a data
 #   shape; first-cut UIs may present flat part lines only.
 #
@@ -199,6 +213,26 @@ entities:
         type: number
         required: false
         description: Finish cost per unit (when carried at line level)
+      finish_cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: Commercial evidence backing finish_cost (same vocabulary as the child entities' cost_source). Absent = manual.
+      finish_cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: price-list id, ERP receipt/PO id, supplier-quote id, or calibration version"
+      phase_status:
+        type: enum
+        required: false
+        values: [draft, process_designed, costed, committed]
+        default: draft
+        description: >
+          Where this line stands in the phased quoting workflow (capture →
+          process design → costing → price). Computed from the line's items by
+          the application (gates are soft; see the quoting phased-workflow UX
+          spec), persisted for list-view chips and checkpoint queries. committed
+          = unit price snapshotted.
       unit_price:
         type: number
         required: false
@@ -348,6 +382,37 @@ entities:
         type: number
         required: true
         description: Run minutes per piece used for costing (estimator-adjusted)
+      setup_mins_low:
+        type: number
+        required: false
+        description: Low end of the probabilistic setup-minutes range from process design (kept through pricing; the committed point value is setup_mins)
+      setup_mins_high:
+        type: number
+        required: false
+        description: High end of the probabilistic setup-minutes range from process design
+      run_mins_low:
+        type: number
+        required: false
+        description: Low end of the probabilistic run-minutes-per-piece range from process design (kept through pricing; the committed point value is run_mins_per_pc)
+      run_mins_high:
+        type: number
+        required: false
+        description: High end of the probabilistic run-minutes-per-piece range from process design
+      time_source:
+        type: enum
+        required: false
+        values: [manual, template_default, similar_part, model_estimate]
+        description: >
+          Sourcing of the time figures on this operation. template_default = seeded
+          from operation_template defaults; similar_part = taken from an actual
+          routing of a comparable part (ERP history); model_estimate = AI estimate,
+          with the calibration version in time_source_ref. Absent = manual
+          (estimator-entered).
+      time_source_ref:
+        type: string
+        required: false
+        description: "Source reference: template id, similar-part item/routing reference, or model_estimate calibration version"
+        examples: ["fulcrum_item:12345/routing", "calib-2026-07"]
       labor_rate:
         type: number
         required: false
@@ -356,6 +421,14 @@ entities:
         type: number
         required: false
         description: Machine rate per hour (depreciation + maintenance + consumables + power) in effect for this operation
+      shop_rate_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: >
+          "FK → shop_rate.id — the shop_rate row the labor/machine rates were
+          snapshotted from at proposal time (rate provenance; null when rates
+          were entered manually)"
       is_outside:
         type: boolean
         required: true
@@ -435,6 +508,20 @@ entities:
         type: string
         required: false
         description: Distributor or mill quoted for this material
+      cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: >
+          Commercial evidence backing the material cost figures. Deterministic
+          sources (price_list, fulcrum_history, supplier_quote) point at the
+          fetched evidence via cost_source_ref; model_estimate carries its
+          calibration version there. Absent = manual (estimator-entered).
+      cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: price-list id, ERP receipt/PO id, supplier-quote id, or calibration version"
+        examples: ["fulcrum_po:PO-2026-0412", "price-list:tw-metals-2026Q2"]
       notes:
         type: string
         required: false
@@ -495,6 +582,18 @@ entities:
           True when the customer or specification requires Nadcap accreditation
           for this process. Constrains supplier selection and feeds the sales
           order's quality flowdown plan on win.
+      cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: >
+          Commercial evidence backing the unit_cost/lot_charge figures.
+          Deterministic sources point at the fetched evidence via
+          cost_source_ref. Absent = manual (estimator-entered).
+      cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: vendor rate-table/price-list id, ERP receipt/PO id, supplier-quote id, or calibration version"
       sort_order:
         type: integer
         required: false
@@ -547,6 +646,17 @@ entities:
         type: number
         required: false
         description: Cost per component
+      cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: >
+          Commercial evidence backing unit_cost. Deterministic sources point at
+          the fetched evidence via cost_source_ref. Absent = manual.
+      cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: catalog/price-list id, ERP receipt/PO id, supplier-quote id, or calibration version"
       notes:
         type: string
         required: false
@@ -621,6 +731,18 @@ entities:
         type: number
         required: false
         description: 100% inspection cost across the make quantity
+      cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: >
+          Commercial evidence backing the inspection cost figures. One source
+          for the record's four cost fields (record granularity is deliberate;
+          split the record if sources genuinely diverge). Absent = manual.
+      cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: ERP history reference, supplier-quote id, or calibration version"
       notes:
         type: string
         required: false
@@ -720,6 +842,18 @@ entities:
         required: true
         default: false
         description: True when the charge recurs per order rather than once per program
+      cost_source:
+        type: enum
+        required: false
+        values: [manual, price_list, fulcrum_history, supplier_quote, model_estimate]
+        description: >
+          Commercial evidence backing the add-on cost — a supplier fixture quote
+          is deterministic (supplier_quote); CAM programming hours are a
+          calibrated estimate (model_estimate). Absent = manual.
+      cost_source_ref:
+        type: string
+        required: false
+        description: "Source reference: supplier-quote id, ERP reference, or calibration version"
       notes:
         type: string
         required: false
