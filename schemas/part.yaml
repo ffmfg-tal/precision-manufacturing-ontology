@@ -87,6 +87,14 @@ entities:
         type: boolean
         required: true
         description: True if the customer requires source inspection at the manufacturer's facility
+      fulcrum_item_id:
+        type: string
+        required: false
+        description: >
+          ERP (Fulcrum) item id for the quoted-vs-actual calibration join
+          (quoting phased-workflow §7). Set at quote-won or when an
+          actuals-ingestion match is confirmed; ambiguous matches surface
+          for human review rather than silently linking.
 
     relationships:
       specified_by:

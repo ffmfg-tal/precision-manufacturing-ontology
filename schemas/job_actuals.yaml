@@ -1,0 +1,167 @@
+# schemas/job_actuals.yaml
+#
+# Layer-1 coverage: NONE.
+#   No Layer-1 standard models quoted-vs-actual calibration data for a job
+#   shop. Layer-2 (manufacturer) contribution of the quoting vertical's
+#   phased workflow model (§7 — "the calibration loop / the moat").
+#
+# Architectural decisions:
+#   These entities are the warp-core successor to the pre-replatform
+#   `historical_actuals` table that died in the raze. They land ERP-actuals
+#   snapshots (Fulcrum provenance) as canonical records so (a) quoted-vs-
+#   actual scorecards are queryable, (b) probabilistic estimators get a
+#   calibration dataset, (c) maturity-ladder promotions have evidence.
+#
+#   Ingestion is snapshot-style: one job_actuals record per completed
+#   Fulcrum job per ingestion (idempotent by fulcrum_job_id — re-ingestion
+#   upserts the same record, SCD2 history preserves prior snapshots).
+#   The part/quote joins are nullable: matching is heuristic (part_number +
+#   revision) and ambiguous matches are surfaced for review, never silently
+#   linked (phased-workflow plan Wave 5).
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   part is defined in schemas/part.yaml — referenced by job_actuals.part_id
+#   quote / quote_line are defined in schemas/quote.yaml / quote_line.yaml —
+#     referenced by job_actuals.quote_id / quote_line_id
+#
+# Prose source: quoting repo docs/QUOTING_WORKFLOW_PHASES.md §7
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-03)
+# Sibling schemas: schemas/part.yaml, schemas/quote_line.yaml
+#
+# Entities: job_actuals, job_operation_actuals
+
+entities:
+
+  job_actuals:
+    description: >
+      Actual cost/time results of one completed production job, snapshotted
+      from the ERP (Fulcrum) for quoted-vs-actual calibration. Header-level
+      totals; per-operation detail lives in job_operation_actuals children.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      fulcrum_job_id:
+        type: string
+        required: true
+        description: Fulcrum job id this snapshot was ingested from (idempotency key for ingestion)
+      fulcrum_item_id:
+        type: string
+        required: true
+        description: Fulcrum item id the job produced
+      part_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → part.id — canonical part, when the join is confirmed (null until matched; ambiguous matches surface for review)"
+      quote_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote.id — the quote that won this work, when known"
+      quote_line_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote_line.id — the specific quoted line, when known (enables line-level quoted-vs-actual)"
+      part_number:
+        type: string
+        required: false
+        description: Part number as recorded on the job (denormalized matching aid)
+      completed_at:
+        type: datetime
+        required: false
+        description: When the job completed in the ERP
+      qty_completed:
+        type: number
+        required: false
+        description: Quantity completed on the job
+      material_cost_actual:
+        type: number
+        required: false
+        description: Actual material cost for the job (total, not per piece)
+      outside_cost_actual:
+        type: number
+        required: false
+        description: Actual outside-processing cost for the job
+      purchased_cost_actual:
+        type: number
+        required: false
+        description: Actual purchased-component cost for the job
+      labor_hours_actual:
+        type: number
+        required: false
+        description: Actual labor hours charged to the job
+      machine_hours_actual:
+        type: number
+        required: false
+        description: Actual machine hours charged to the job
+      total_cost_actual:
+        type: number
+        required: false
+        description: Actual total job cost per the ERP cost breakdown
+      source:
+        type: enum
+        required: true
+        values: [fulcrum]
+        description: ERP of origin (single-valued today; enum so a second source is additive)
+      ingested_at:
+        type: datetime
+        required: true
+        description: When this snapshot was ingested
+      notes:
+        type: string
+        required: false
+
+    relationships:
+      produced_part:
+        target: part
+        cardinality: many-to-one
+        nullable: true
+        description: The canonical part this job produced, once matched
+
+  job_operation_actuals:
+    description: >
+      Per-operation actuals for one job_actuals snapshot — the calibration
+      counterpart of quote_operation. Actual setup and per-piece run minutes
+      by operation/work center, from ERP time tracking.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      job_actuals_id:
+        type: uuid
+        required: true
+        description: "FK → job_actuals.id — the job snapshot this operation belongs to"
+      sequence:
+        type: integer
+        required: false
+        description: Operation order within the routing
+      operation_name:
+        type: string
+        required: true
+        description: Operation name as run
+      work_center:
+        type: string
+        required: false
+        description: Work center the operation ran on
+      setup_mins_actual:
+        type: number
+        required: false
+        description: Actual setup minutes recorded
+      run_mins_per_pc_actual:
+        type: number
+        required: false
+        description: Actual run minutes per piece (total run / qty)
+      qty:
+        type: number
+        required: false
+        description: Quantity the run-time was measured over
+
+    relationships:
+      belongs_to_job_actuals:
+        target: job_actuals
+        cardinality: many-to-one
+        description: The job snapshot this operation detail belongs to

@@ -1,0 +1,154 @@
+# schemas/supplier_quote.yaml
+#
+# Layer-1 coverage: NONE. Layer-2 (manufacturer) contribution of the quoting
+# vertical's phased workflow model (§4.2.2c — supplier RFQ-by-email loop).
+#
+# Architectural decisions:
+#   The deterministic-costing state machine for prices fetched from
+#   suppliers: an agent (or estimator) drafts an RFQ email per line-item
+#   cost element, the outbound send is human-released (draft-first house
+#   rule), the reply is parsed with human confirmation (L2), and applying
+#   it stamps the cost with `cost_source: supplier_quote` + this record's
+#   id as the ref. Envelope ids reference email-ingest's canonical store —
+#   the email substrate owns the messages; this entity owns the commercial
+#   state.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote_line is defined in schemas/quote_line.yaml — referenced by
+#     supplier_quote.quote_line_id
+#
+# Prose source: quoting repo docs/QUOTING_WORKFLOW_PHASES.md §4.2.2c
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-03)
+#
+# Entities: supplier_quote
+
+entities:
+
+  supplier_quote:
+    description: >
+      One supplier price solicitation for one cost element of a quote line —
+      material stock, an outside process, or a purchased component. Tracks
+      the request→reply→apply lifecycle; an applied supplier_quote is the
+      provenance behind a deterministic cost figure.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line whose cost element is being sourced"
+      cost_kind:
+        type: enum
+        required: true
+        values: [material, outside, purchased]
+        description: Which cost bucket the solicited price feeds
+      vendor:
+        type: string
+        required: true
+        description: Supplier the request goes to
+      spec:
+        type: string
+        required: false
+        description: Specification being quoted (material spec/form/size, process spec, or component PN)
+        examples: ["17-4PH AMS 5643 bar 2.5 dia x 6", "MIL-A-8625 Type III Class 2"]
+      description:
+        type: string
+        required: false
+        description: Free-text detail included in the request
+      status:
+        type: enum
+        required: true
+        values: [draft, requested, replied, applied, expired]
+        default: draft
+        description: Lifecycle state (see state machine)
+      request_envelope_id:
+        type: string
+        required: false
+        nullable: true
+        description: email-ingest envelope id of the outbound request (null while draft)
+      reply_envelope_id:
+        type: string
+        required: false
+        nullable: true
+        description: email-ingest envelope id of the supplier's reply
+      quoted_unit_cost:
+        type: number
+        required: false
+        description: Unit cost from the supplier reply (human-confirmed at L2)
+      quoted_lot_charge:
+        type: number
+        required: false
+        description: Fixed lot charge from the reply, when quoted
+      quoted_lead_days:
+        type: integer
+        required: false
+        description: Supplier lead time from the reply
+      currency:
+        type: string
+        required: false
+        default: "USD"
+        description: ISO 4217 currency of the quoted figures
+      valid_until:
+        type: datetime
+        required: false
+        description: Supplier quote validity end; past it the record moves to expired
+      requested_by:
+        type: string
+        required: false
+        description: Email of the human who released the outbound request
+      requested_at:
+        type: datetime
+        required: false
+        description: When the request was sent
+      applied_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: When the quoted figures were applied to the cost element
+      notes:
+        type: string
+        required: false
+
+    state_machine:
+      description: >
+        Request→reply→apply lifecycle. Outbound send is human-released
+        (draft-first); reply parsing is human-confirmed (L2). Expiry is
+        computed from valid_until. No hard deletes — an abandoned draft just
+        stays draft.
+      initial_state: draft
+      terminal_states: [applied, expired]
+      states:
+        draft:
+          description: Request drafted, not yet sent
+        requested:
+          description: Outbound request released by a human; awaiting reply
+        replied:
+          description: Supplier replied; figures parsed pending confirmation/application
+        applied:
+          description: Figures applied to the cost element (cost_source supplier_quote)
+        expired:
+          description: Validity lapsed before application
+      transitions:
+        - from: draft
+          to: requested
+          trigger: Human releases the outbound request (EMAIL_INGEST send)
+        - from: requested
+          to: replied
+          trigger: Supplier reply received and linked
+        - from: replied
+          to: applied
+          trigger: Human confirms parsed figures; cost element stamped
+        - from: requested
+          to: expired
+          trigger: valid_until passes without application
+        - from: replied
+          to: expired
+          trigger: valid_until passes without application
+
+    relationships:
+      sources_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line whose cost element this solicitation feeds
