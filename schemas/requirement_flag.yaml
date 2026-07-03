@@ -1,0 +1,193 @@
+# schemas/requirement_flag.yaml
+#
+# Layer-1 coverage: NONE.
+#   No Layer-1 standard models a structured gap/conflict/risk raised while reading
+#   a customer's RFQ package. This is a Layer-2 (manufacturer) contribution of the
+#   quoting vertical's phased workflow model.
+#
+# Architectural decisions:
+#   A requirement flag is a FIRST-CLASS RECORD with lifecycle, not prose inside an
+#   extraction blob. Promoting it out of drawing_extraction.flags gives flags
+#   (a) a resolve/ask/answer/waive lifecycle with attribution, (b) presence in the
+#   customer-transparency track (impact ranges are the transparency customers
+#   feel), and (c) a queryable surface for quote readiness ("open red flags block
+#   send"). The extraction blob's inline flags remain the raw capture output;
+#   confirmed capture materializes them as these records.
+#
+#   Flags are never deleted — status transitions only (waived is the accepted-risk
+#   terminal state; resolved/answered are the closed states). Send is gated on no
+#   OPEN red flags; yellows ride along.
+#
+#   This entity carries no provenance value-object: `origin` + the event chain's
+#   dual attribution cover who/what raised it, and a flag is itself assertion
+#   metadata about the package, not a technical fact requiring verification.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   rfq is defined in schemas/rfq.yaml — referenced by requirement_flag.rfq_id
+#   quote_line is defined in schemas/quote_line.yaml — referenced by
+#     requirement_flag.quote_line_id
+#   drawing_extraction is defined in schemas/drawing_extraction.yaml — referenced
+#     by requirement_flag.drawing_extraction_id
+#
+# Prose source: quoting repo docs/QUOTING_WORKFLOW_PHASES.md (§2.2.5, §6) and
+#               docs/2026-07-03-phased-quoting-ux.md (§2B, §4)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-03)
+# Sibling schemas: schemas/rfq.yaml, schemas/quote_line.yaml,
+#                  schemas/drawing_extraction.yaml
+#
+# Entities: requirement_flag
+
+entities:
+
+  requirement_flag:
+    description: >
+      A structured gap, conflict, or risk surfaced while reading an RFQ package —
+      "PO says Rev C, drawing says Rev B", "no material condition specified",
+      "obsolete finish spec". Raised by extraction, cross-document
+      reconciliation, or a human; carries severity and an estimated dollar-impact
+      range; owns a lifecycle from open through customer-answered, internal
+      resolution, or explicit risk-accepting waiver. Open red flags gate quote
+      send. Customer-visible flags render in the transparency appendix ("here is
+      what was ambiguous in your package and what it does to price/lead-time").
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the flag is raised
+      rfq_id:
+        type: uuid
+        required: true
+        description: "FK → rfq.id — the RFQ package this flag was raised against"
+      quote_line_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote_line.id — set when the flag is scoped to a specific line (null for package-level flags such as commercial-terms conflicts)"
+      drawing_extraction_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → drawing_extraction.id — the extraction run that raised this flag (null for human- or reconciliation-raised flags)"
+      flag_type:
+        type: enum
+        required: true
+        values: [missing, ambiguous, conflicting, obsolete, non_standard, risk]
+        description: >
+          Taxonomy shared with the extraction output's inline flags. missing = a
+          required fact is absent; ambiguous = present but readable more than one
+          way; conflicting = two documents disagree; obsolete = references a
+          superseded spec/revision; non_standard = unusual requirement needing
+          judgment; risk = manufacturability or commercial risk worth surfacing.
+      severity:
+        type: enum
+        required: true
+        values: [red, yellow]
+        description: Red blocks quote send while open; yellow informs but does not gate
+      description:
+        type: string
+        required: true
+        description: Human-readable statement of the gap/conflict/risk
+        examples: ["PO line 3 calls Rev C; drawing title block is Rev B", "No heat-treat condition specified for 17-4PH"]
+      source_field:
+        type: string
+        required: false
+        description: Extraction field or document region that triggered the flag
+        examples: ["material.condition", "part_info.revision"]
+      impact_low:
+        type: number
+        required: false
+        description: Low end of the estimated dollar impact if resolved unfavorably
+      impact_high:
+        type: number
+        required: false
+        description: High end of the estimated dollar impact if resolved unfavorably
+      origin:
+        type: enum
+        required: true
+        values: [extraction, human, reconciliation]
+        description: What raised the flag — an extraction run, a person, or cross-document reconciliation
+      status:
+        type: enum
+        required: true
+        values: [open, asked_customer, answered_by_customer, resolved_internal, waived]
+        default: open
+        description: >
+          Lifecycle state. asked_customer = a clarifying question is with the
+          customer (in-flight); answered_by_customer / resolved_internal = closed
+          with an answer; waived = risk explicitly accepted by a named human.
+          Flags are never deleted.
+      resolution_notes:
+        type: string
+        required: false
+        description: How the flag was resolved, the customer's answer, or why it was waived
+      resolved_by:
+        type: string
+        required: false
+        nullable: true
+        description: Email of the human who closed or waived the flag (attribution; null while open/asked)
+      resolved_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: ISO 8601 UTC timestamp when the flag reached a closed state
+      customer_visible:
+        type: boolean
+        required: true
+        default: false
+        description: >
+          Include this flag in the customer transparency view/appendix. Impact
+          ranges and description render; internal notes never do.
+
+    state_machine:
+      description: >
+        Flag lifecycle from raised to dispositioned. Open red flags gate quote
+        send; disposition is always attributed (resolved_by/resolved_at) except
+        the asked_customer hop.
+      initial_state: open
+      terminal_states: [answered_by_customer, resolved_internal, waived]
+      states:
+        open:
+          description: Raised, not yet dispositioned
+        asked_customer:
+          description: A clarifying question has been drafted/sent to the customer; awaiting answer
+        answered_by_customer:
+          description: Customer answered; answer recorded in resolution_notes
+        resolved_internal:
+          description: Resolved without the customer (answer found in the package, spec library, or engineering judgment)
+        waived:
+          description: Risk explicitly accepted by a named human; carried into pricing as-is
+      transitions:
+        - from: open
+          to: asked_customer
+          trigger: Estimator sends (or drafts) a clarifying question to the customer
+        - from: open
+          to: resolved_internal
+          trigger: Estimator resolves the flag from available information
+        - from: open
+          to: waived
+          trigger: Named human accepts the risk
+        - from: asked_customer
+          to: answered_by_customer
+          trigger: Customer reply recorded
+        - from: asked_customer
+          to: resolved_internal
+          trigger: Resolved internally before the customer answered
+        - from: asked_customer
+          to: waived
+          trigger: Named human accepts the risk rather than waiting
+
+    relationships:
+      raised_against_rfq:
+        target: rfq
+        cardinality: many-to-one
+        description: The RFQ package this flag was raised against
+      scoped_to_line:
+        target: quote_line
+        cardinality: many-to-one
+        nullable: true
+        description: The quote line this flag is scoped to, when line-scoped
+      raised_by_extraction:
+        target: drawing_extraction
+        cardinality: many-to-one
+        nullable: true
+        description: The extraction run that raised this flag, when extraction-raised

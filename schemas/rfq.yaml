@@ -114,6 +114,7 @@ entities:
           - New
           - Needs_Customer_Assignment
           - Reviewing
+          - Captured
           - Quoting
           - Quoted
           - Won
@@ -139,6 +140,12 @@ entities:
           description: No customer matched at intake (unknown email domain); estimator must link or create the customer
         Reviewing:
           description: Estimator reviewing the request — attachments, extractions, requirements
+        Captured:
+          description: >
+            Capture confirmed by a named human — extraction verified, every red
+            requirement flag resolved/asked/waived (phased-workflow Phase 1
+            checkpoint). Soft gate: Quoting may begin from Reviewing without it;
+            send is the hard gate.
         Quoting:
           description: At least one quote is being built from this RFQ
         Quoted:
@@ -160,8 +167,17 @@ entities:
           to: Reviewing
           trigger: Estimator links an existing customer or creates a new one
         - from: Reviewing
+          to: Captured
+          trigger: Capture confirmed — extraction verified and red flags dispositioned (Phase 1 checkpoint)
+        - from: Reviewing
+          to: Quoting
+          trigger: Estimator starts building a quote from this RFQ (capture not yet confirmed — soft gate)
+        - from: Captured
           to: Quoting
           trigger: Estimator starts building a quote from this RFQ
+        - from: Captured
+          to: No_Quote
+          trigger: the manufacturer declines to quote
         - from: Reviewing
           to: No_Quote
           trigger: the manufacturer declines to quote
