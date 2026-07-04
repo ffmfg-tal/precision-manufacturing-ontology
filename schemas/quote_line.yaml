@@ -196,6 +196,35 @@ entities:
           Value-add markup percentage applied to inside processing (machining,
           inspection, programming). This is where the manufacturer's margin
           lives; defaults vary by material class and are always overridable.
+      target_gm_pct:
+        type: number
+        required: false
+        description: >
+          Target value-add gross margin percentage — the estimator's primary
+          pricing lever (2026-07-04 pricing-as-judgment redesign). Inverts to
+          markup_inside_pct via m = g/(100-g)*100; the four markup_*_pct
+          fields remain the plumbing the engine actually prices through, but
+          target_gm_pct is what the estimator sets. INTERNAL-ONLY — must never
+          appear in the customer-facing transparency projection.
+      strategic_unit_price:
+        type: number
+        required: false
+        description: >
+          A committed unit price that may deviate from the GM-derived
+          (computed) price in either direction — win-the-platform, capacity
+          fill, price-to-value, or customer history. When set (> 0), this
+          becomes the actual price_unit/price_total the engine commits;
+          <= 0 or unset is treated as "not applied" (no nullable variant
+          exists on this schema, so 0 is the clear-sentinel by convention).
+          Requires price_rationale to be non-empty whenever set.
+      price_rationale:
+        type: string
+        required: false
+        description: >
+          Required justification for strategic_unit_price when set — the
+          audit record of why the committed price deviates from the
+          GM-derived price. INTERNAL-ONLY — must never appear in the
+          customer-facing transparency projection.
       finish_spec:
         type: string
         required: false
