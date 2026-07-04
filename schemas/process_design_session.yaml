@@ -1,0 +1,146 @@
+# schemas/process_design_session.yaml
+#
+# Layer-1 coverage: NONE. Layer-2 (manufacturer) contribution of the quoting
+# vertical's phased workflow model (dialogue-process-design-and-pricing spec
+# §3, adopted 2026-07-04).
+#
+# Architectural decisions:
+#   Process design at FFMFG is a discussion (Jackie/engineering in the loop),
+#   not a one-shot RPC that declares a routing. This entity is the dialogue
+#   record for a quote line's process design: a threaded turn history whose
+#   AI turns are revised proposal objects (1-3 options with trade-offs), not
+#   prose. The human steers via a chat box, but the chat is the steering
+#   input, not the artifact — every AI reply re-renders structured option
+#   cards. Commit is the checkpoint: picking an option (possibly edited)
+#   materializes quote_operation rows; the session itself (all turns, all
+#   rejected options, the why) persists as AS9100-flavored contract-review
+#   evidence and the calibration/training set.
+#
+#   `turns` is a freeform JSON array of {role, content, options_json?, at}
+#   objects — embedded as a JSON string (see quote_line.yaml's qty_breaks
+#   precedent: canonical-json rejects non-integer numbers at any depth, and a
+#   turn's embedded option proposals carry time ranges and cost estimates
+#   that are legitimately fractional). Nested option payloads are themselves
+#   JSON-stringified into `options_json` on the turn for the same reason.
+#   The session is the aggregate root; turns are not separately queryable
+#   rows — that would fragment the audit trail this entity exists to keep
+#   intact.
+#
+#   No hard deletes — abandoned sessions stay abandoned, never removed. A
+#   line may reopen design (re-propose) after commit; that starts a new
+#   session rather than mutating a committed one, keeping every committed
+#   session's evidence trail immutable.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote_line is defined in schemas/quote_line.yaml — referenced by
+#     process_design_session.quote_line_id
+#
+# Prose source: quoting repo .agent/specs/2026-07-04-dialogue-process-design-
+#               and-pricing-spec.md §3
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-04)
+# Sibling schemas: schemas/quote_line.yaml, schemas/quote_assessment.yaml
+#
+# Entities: process_design_session
+
+entities:
+
+  process_design_session:
+    description: >
+      The threaded dialogue record for a quote line's process design. AI
+      turns carry revised proposal objects (1-3 options with trade-offs:
+      draft routing + NRE + rough time ranges + risk notes + assumptions),
+      not prose; the human steers via chat but the chat is input, not the
+      artifact. Committing an option materializes quote_operation rows and
+      moves the line to process_designed. The full turn history — including
+      rejected options and the reasoning behind revisions — is retained as
+      AS9100 contract-review evidence and as calibration/training data.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the session opens
+      quote_line_id:
+        type: uuid
+        required: true
+        description: "FK → quote_line.id — the line this design session belongs to"
+      status:
+        type: enum
+        required: true
+        values: [open, committed, abandoned]
+        default: open
+        description: >
+          open = dialogue in progress; committed = an option was picked and
+          quote_operation rows materialized; abandoned = session dropped
+          without committing (re-proposing opens a new session rather than
+          reopening this one).
+      turns:
+        type: string
+        required: false
+        description: >
+          JSON-encoded array of turn objects: [{role: 'user'|'assistant',
+          content: string, options_json?: string, at: string}]. The whole
+          turn list is stored as one JSON blob — the session is the
+          aggregate, turns are not separately queryable rows. A turn's
+          `options_json` is itself a JSON-encoded string of that turn's
+          proposal options (draft routing/NRE/time-range/risk objects),
+          double-encoded for the same canonical-json float-safety reason as
+          the outer `turns` field.
+      committed_option_key:
+        type: string
+        required: false
+        description: Identifier of the option (within the committing turn's options) that was picked, possibly as edited
+      committed_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: ISO 8601 UTC timestamp when the session was committed
+      committed_by:
+        type: string
+        required: false
+        nullable: true
+        description: Email of the human who committed the option
+      model_version:
+        type: string
+        required: false
+        description: Model identifier used to generate proposal turns in this session
+      prompt_version:
+        type: string
+        required: false
+        description: Version tag of the process-design prompt used
+      knowledge_version:
+        type: string
+        required: false
+        description: Version tag of the injected process-design knowledge (repo-local knowledge/ files or knowledge_item snapshot)
+      notes:
+        type: string
+        required: false
+        description: Free-text estimator/engineer notes on the session
+
+    state_machine:
+      description: >
+        A design session opens, accumulates dialogue turns, and either
+        commits (an option is picked, quote_operation rows materialize) or
+        is abandoned. No hard deletes; re-proposing after commit opens a new
+        session rather than mutating this one.
+      initial_state: open
+      terminal_states: [committed, abandoned]
+      states:
+        open:
+          description: Dialogue in progress; no routing materialized yet
+        committed:
+          description: An option was picked (possibly edited); quote_operation rows exist
+        abandoned:
+          description: Dropped without committing
+      transitions:
+        - from: open
+          to: committed
+          trigger: Human picks an option in a turn and commits it
+        - from: open
+          to: abandoned
+          trigger: Session dropped without committing (e.g. line re-scoped, RFQ withdrawn)
+
+    relationships:
+      designs_line:
+        target: quote_line
+        cardinality: many-to-one
+        description: The quote line this design session belongs to

@@ -1,0 +1,153 @@
+# schemas/quote_assessment.yaml
+#
+# Layer-1 coverage: NONE. Layer-2 (manufacturer) contribution of the quoting
+# vertical's phased workflow model (dialogue-process-design-and-pricing spec
+# §2, adopted 2026-07-04).
+#
+# Architectural decisions:
+#   The hiring@ pattern applied to quoting: the AI produces a structured
+#   assessment — recommendation + confidence + drivers + evidence — that a
+#   human reviews and disposes of with attributed verbs (accept/adjust/
+#   reject), exactly as hiring@ reviews candidate assessments. Quoting needs
+#   this at two altitudes: a line assessment (after costing: recommended
+#   price, confidence, top cost drivers, top risks, comparable evidence) and
+#   a quote-level assessment (roll-up across lines). Same event-sourced
+#   review loop as every other reviewable-artifact entity in this ontology.
+#
+#   `recommendation_json` is a freeform JSON object (recommended price,
+#   drivers, risks, evidence refs) embedded as a JSON string for the same
+#   canonical-json float-safety reason as quote_line.qty_breaks — the
+#   recommendation carries fractional dollar amounts and confidence-adjacent
+#   figures nested inside driver/risk objects.
+#
+#   No hard deletes — a rejected assessment stays on record as a rejected
+#   assessment; re-running the assessment creates a new record rather than
+#   overwriting the disposed one, preserving the training/calibration trail.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote is defined in schemas/quote.yaml — referenced by quote_assessment.quote_id
+#   quote_line is defined in schemas/quote_line.yaml — referenced by
+#     quote_assessment.quote_line_id
+#
+# Prose source: quoting repo .agent/specs/2026-07-04-dialogue-process-design-
+#               and-pricing-spec.md §2
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-04)
+# Sibling schemas: schemas/quote.yaml, schemas/quote_line.yaml,
+#                  schemas/process_design_session.yaml
+#
+# Entities: quote_assessment
+
+entities:
+
+  quote_assessment:
+    description: >
+      A reviewable AI assessment artifact, scoped to a quote line or an
+      entire quote — recommended price, confidence, top cost drivers, top
+      risks (open flags, wide ranges, unsourced dollars), and comparable
+      evidence (similar parts, history, prior quotes won/lost). Rendered as
+      a card in the estimating ledger; a human disposes of it with an
+      attributed accept/adjust/reject verb, mirroring hiring@'s assessment
+      review loop.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted when the assessment is generated
+      scope:
+        type: enum
+        required: true
+        values: [line, quote]
+        description: Whether this assessment covers a single quote line or the whole quote
+      quote_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote.id — set for quote-scope assessments (and, optionally, line-scope assessments for convenience lookup)"
+      quote_line_id:
+        type: uuid
+        required: false
+        nullable: true
+        description: "FK → quote_line.id — set for line-scope assessments; null for quote-scope"
+      recommendation_json:
+        type: string
+        required: false
+        description: >
+          JSON-encoded structured assessment object: recommended price,
+          drivers, risks, evidence refs. Embedded as a JSON string (see
+          quote_line.qty_breaks precedent) since nested driver/risk objects
+          carry fractional dollar figures.
+      confidence:
+        type: number
+        required: false
+        description: Model confidence in the recommendation, 0-1
+      summary:
+        type: string
+        required: false
+        description: Short human-readable summary of the assessment
+      status:
+        type: enum
+        required: true
+        values: [proposed, accepted, adjusted, rejected]
+        default: proposed
+        description: Review disposition. adjusted means accepted with a recorded diff (captured in disposition_notes).
+      disposed_by:
+        type: string
+        required: false
+        nullable: true
+        description: Email of the human who accepted/adjusted/rejected the assessment
+      disposed_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: ISO 8601 UTC timestamp of disposition
+      disposition_notes:
+        type: string
+        required: false
+        description: Why the assessment was adjusted or rejected, or the diff applied
+      model_version:
+        type: string
+        required: false
+        description: Model identifier used to generate the assessment
+      prompt_version:
+        type: string
+        required: false
+        description: Version tag of the assessment prompt used
+
+    state_machine:
+      description: >
+        An assessment is proposed by the model and dispositioned by a human.
+        No hard deletes; re-running the assessment creates a new proposed
+        record rather than mutating a disposed one.
+      initial_state: proposed
+      terminal_states: [accepted, adjusted, rejected]
+      states:
+        proposed:
+          description: Generated, awaiting human review
+        accepted:
+          description: Human accepted the recommendation as-is
+        adjusted:
+          description: Human accepted with changes; the diff is recorded in disposition_notes
+        rejected:
+          description: Human rejected the recommendation
+      transitions:
+        - from: proposed
+          to: accepted
+          trigger: Human accepts the recommendation as-is
+        - from: proposed
+          to: adjusted
+          trigger: Human accepts with changes, recording the diff
+        - from: proposed
+          to: rejected
+          trigger: Human rejects the recommendation
+
+    relationships:
+      assesses_quote:
+        target: quote
+        cardinality: many-to-one
+        nullable: true
+        description: The quote this assessment covers, when quote-scoped
+      assesses_line:
+        target: quote_line
+        cardinality: many-to-one
+        nullable: true
+        description: The quote line this assessment covers, when line-scoped
