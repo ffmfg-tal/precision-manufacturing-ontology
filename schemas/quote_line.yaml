@@ -441,6 +441,17 @@ entities:
         type: integer
         required: false
         description: Position of this operation in the routing sequence
+      voided:
+        type: boolean
+        required: false
+        default: false
+        description: >
+          True when this operation has been rejected/superseded (e.g. a
+          re-proposed process design replacing an earlier AI proposal, or an
+          estimator rejecting a proposed op). No hard DELETE — cost and pricing
+          ignore voided operations, and re-proposal voids prior model_estimate
+          operations before writing fresh ones. Preserves the correction as
+          training signal in event history.
       notes:
         type: string
         required: false
