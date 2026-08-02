@@ -127,6 +127,33 @@ entities:
           anti-aggregation rule (§2.3): commercial systems must never systematically collect
           technical characteristics. Adding a kind to this array means proving the new kind
           cannot carry a measurement.
+      detected_marking:
+        type: enum
+        values: [export_controlled, cui, none]
+        required: true
+        description: >
+          The document's own classification marking, read from its text. `none` means no
+          marking was FOUND, which is not the same as the document being uncontrolled — a
+          raster sheet has no text to inspect, so nothing was established either way.
+          Consumers must treat absence of evidence as undetermined, not as clearance.
+      export_controls:
+        type: object[]
+        required: false
+        description: >
+          The specific designators found, as an array of {regime, kind, value}. A category
+          is not a label: "export_controlled" is a bucket, while an ECCN, a USML category, a
+          CUI category or a cited authorization is a trackable identifier a human can act on
+          and an auditor can follow. Kinds: eccn | usml_category | cui_category |
+          dissemination_control | authorization | registration_code | regulation_citation.
+
+          Note that most regimes do NOT issue a per-document licence number. EAR controls by
+          ECCN, ITAR by USML category; DSP-5/DSP-73 and TAA/MLA numbers are per-transaction
+          authorizations that appear only when one exists. A record whose only entry is a
+          regulation_citation is a document that says "export controlled" and names nothing
+          more specific — the common case, and weaker evidence.
+
+          These are claims printed on a document, not a classification determination. They
+          inform a human decision; they do not replace one.
       partial:
         type: boolean
         required: true
