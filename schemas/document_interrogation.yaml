@@ -1,0 +1,146 @@
+# schemas/document_interrogation.yaml
+#
+# Layer-1 coverage: NONE. No standard describes "what a deterministic parser read out of an
+#   inbound document before anyone looked at it." PDF (ISO 32000) defines the container;
+#   AS9100 clause 8.2 governs contract review as a process, not as a record of what the
+#   incoming paperwork asserted. This is a manufacturer-layer artifact.
+#
+# Prose source: extensions/provenance-and-verification.md (Design Ingestion)
+#
+# Architectural decisions:
+#   Decision 1.14: document_interrogation is keyed by CONTENT, not by the business object that
+#                  happens to reference it. The subject is a byte sequence identified by sha256,
+#                  so the same drawing arriving on an RFQ, a purchase order and a supplier quote
+#                  is interrogated once and referenced three times. rfq_attachment already
+#                  carries sha256, so the join costs nothing and the write is naturally
+#                  idempotent — re-reading a document either confirms the existing record or
+#                  supersedes it when the engine version changes.
+#   Decision 1.15: DISTINCT from tracked_document, which is the controlled-document register
+#                  (approval state, revision, supersession) — a governance record about a
+#                  document's status. DISTINCT from derived_view, which is scoped to a
+#                  cad_model and holds rendered geometry. This entity holds neither status nor
+#                  geometry: it is what a parser deterministically read, with no human or model
+#                  judgment applied.
+#   Decision 1.16: Everything here is COMPUTED provenance. No field may hold a model-proposed
+#                  value. A grounded model pass consumes this record as ground truth; its
+#                  output belongs elsewhere, tagged as proposed.
+#
+# Entities: document_interrogation
+
+entities:
+
+  document_interrogation:
+    description: >
+      What a deterministic parser read out of an inbound document — its classification
+      (text-based, scanned, image-based, mixed), page count, encryption, document role, and the
+      business identifiers it cites. Produced with no model call and no vision pass, so every
+      field is objective evidence rather than an inference: a value here is present because the
+      document's own text layer contains it verbatim. Written once per content hash by the
+      doc-intel service as documents arrive, ahead of any workflow that consumes them, and used
+      both to route the document and to ground and cross-check a later AI extraction.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4, minted on first interrogation of this content hash
+      sha256:
+        type: string
+        required: true
+        description: >
+          SHA-256 of the document bytes — the identity of this record. One interrogation per
+          distinct file, shared by every business object that references those bytes.
+      storage_pointer:
+        type: object
+        required: true
+        description: >
+          Where the bytes live, as {bucket, key}. A reference, never a copy — files live once,
+          in the ingest archive.
+      filename:
+        type: string
+        required: false
+        description: Filename as received. Advisory only; the content hash is the identity.
+      media_type:
+        type: string
+        required: false
+        description: Media type as determined from the bytes, not from the sender's header
+      byte_size:
+        type: integer
+        required: true
+        description: Document size in bytes
+      classification:
+        type: enum
+        values: [text_based, scanned, image_based, mixed, unknown]
+        required: true
+        description: >
+          How the document carries its content. Decides whether a downstream extraction can be
+          grounded on the text layer or must go to vision.
+      classification_confidence:
+        type: decimal
+        required: true
+        description: 0.0-1.0, derived from how much of the document decoded cleanly
+      page_count:
+        type: integer
+        required: false
+        description: Pages, or absent when the document is encrypted and cannot be counted
+      encrypted:
+        type: boolean
+        required: true
+        description: Whether the document carries an encryption dictionary
+      vision_page_count:
+        type: integer
+        required: true
+        description: >
+          Pages with no usable text layer, which a downstream model must read as pixels. The
+          honest measure of how much of this document is machine-readable.
+      document_role:
+        type: enum
+        values:
+          - drawing
+          - parts_list
+          - package_cover_sheet
+          - engineering_order
+          - purchase_order
+          - quality_requirements
+          - terms_and_conditions
+          - specification
+          - rfq_correspondence
+          - unknown
+        required: true
+        description: What kind of document this is, as determined from its own wording
+      role_evidence:
+        type: string[]
+        required: false
+        description: >
+          Verbatim phrases that decided the role — evidence rather than a bare label, so a
+          wrong classification is diagnosable without re-reading the file.
+      identifiers:
+        type: object[]
+        required: false
+        description: >
+          Business identifiers cited by the document, as an array of
+          {kind, family, value, count, pages}: specification references, hardware part numbers,
+          material tempers and CAGE codes.
+
+          CONSTRAINT — no dimensional or tolerance value may appear in this field, ever. Not a
+          nominal, tolerance, diameter, angle, surface finish, limit pair, or any feature-to-value
+          mapping. Only allowlist-matched identifiers. This is the classification model's
+          anti-aggregation rule (§2.3): commercial systems must never systematically collect
+          technical characteristics. Adding a kind to this array means proving the new kind
+          cannot carry a measurement.
+      partial:
+        type: boolean
+        required: true
+        description: >
+          Whether a page or token cap truncated the read. A partial interrogation must never be
+          consumed as a complete one.
+      engine_version:
+        type: string
+        required: true
+        description: >
+          Version of the interrogation engine and its pattern set. Records produced by an older
+          engine are re-runnable and identifiable; the same version must produce the same
+          reading in every plane.
+      interrogated_at:
+        type: datetime
+        required: true
+        description: When this reading was produced
