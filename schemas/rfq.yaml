@@ -107,6 +107,15 @@ entities:
         required: false
         nullable: true
         description: "FK → user.id — estimator assigned to work this RFQ"
+      technical_data_classification:
+        type: enum
+        required: false
+        values: [controlled, uncontrolled, unknown]
+        description: >
+          Per-RFQ override of the customer's technical_data_classification, for the case where a
+          normally-uncontrolled account sends a controlled package (or the reverse). Absent means
+          inherit from the customer. Same rule applies: a positive marking on a document overrides
+          this, and absent-or-unknown at both levels reads as controlled.
       status:
         type: enum
         required: true

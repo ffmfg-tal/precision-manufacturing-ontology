@@ -98,6 +98,34 @@ entities:
         values: [Cleared, Denied, Pending, Restricted]
         description: Outcome of ITAR screening
       # Quality Program
+      technical_data_classification:
+        type: enum
+        required: false
+        values: [controlled, uncontrolled, unknown]
+        description: >
+          Whether technical data RECEIVED FROM this customer is export-controlled. This is the
+          opposite direction from itar_screened, and the two must not be conflated: itar_screened
+          asks whether we may RELEASE controlled data TO them (a DDTC denied-party question),
+          while this asks whether what they SEND US is controlled and therefore may not be
+          processed on commercial infrastructure.
+
+          Set once per customer by a human who knows the account, rather than re-deciding per
+          document — automated marking detection is the backstop that catches a mis-set value,
+          not the primary control. Absent or `unknown` reads as controlled: a customer nobody has
+          assessed is not a customer whose drawings may be sent to a commercial model.
+
+          A positive marking ON A DOCUMENT always overrides this. A customer flag cannot clear a
+          sheet that says ITAR on its face.
+      technical_data_classification_note:
+        type: string
+        required: false
+        description: >
+          Who made the determination and on what basis — a contract clause, a flowdown, a
+          conversation with the customer. The field is only as good as its justification.
+      technical_data_classification_at:
+        type: date
+        required: false
+        description: When the determination was made, so a stale one can be found and revisited
       quality_system_requirement:
         type: enum
         required: false
