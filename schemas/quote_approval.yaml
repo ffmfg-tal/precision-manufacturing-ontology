@@ -1,0 +1,97 @@
+# schemas/quote_approval.yaml
+#
+# Layer-1 coverage: NONE. Layer-2 (manufacturer) contribution of the quoting
+# vertical's phased workflow model (§5.2.3 — approval as events).
+#
+# Architectural decisions:
+#   Approvals are first-class records, not status flips: who approved, under
+#   what policy, when — the AS9100-friendly named-human authority trail, and
+#   the L-ladder enforcement point (send stays human-gated at L3). A quote
+#   requiring approval cannot send until every required quote_approval row is
+#   `approved`. Policies are computed by the application (thresholds live in
+#   code/config); this entity records the demanded approval and its outcome.
+#
+# Cross-schema dependencies (FK references only — DO NOT redefine these entities here):
+#   quote is defined in schemas/quote.yaml — referenced by quote_approval.quote_id
+#
+# Prose source: quoting repo docs/QUOTING_WORKFLOW_PHASES.md §5.2.3,
+#               docs/2026-07-03-phased-quoting-ux.md §4-5 (send = only hard gate)
+# Cluster: Sales and Quoting (Quoting vertical, 2026-07-03)
+#
+# Entities: quote_approval
+
+entities:
+
+  quote_approval:
+    description: >
+      One required approval on a quote — demanded by a policy (over-amount,
+      under-margin, open red flags, or manual escalation) and dispositioned
+      by a named human. Open (pending) approvals hard-block quote send.
+    attributes:
+      id:
+        type: uuid
+        required: true
+        description: UUID v4
+      quote_id:
+        type: uuid
+        required: true
+        description: "FK → quote.id — the quote requiring approval"
+      policy:
+        type: enum
+        required: true
+        values: [over_amount, under_margin, red_flags, manual]
+        description: Which policy demanded this approval
+      threshold_desc:
+        type: string
+        required: false
+        description: Human-readable statement of the trigger at demand time
+        examples: ["total $31,400 exceeds $25,000 threshold", "blended margin 11% below 15% floor"]
+      status:
+        type: enum
+        required: true
+        values: [pending, approved, rejected]
+        default: pending
+        description: Disposition state; pending blocks send
+      requested_at:
+        type: datetime
+        required: false
+        description: When the approval was demanded
+      decided_by:
+        type: string
+        required: false
+        nullable: true
+        description: Email of the named human who approved/rejected (null while pending)
+      decided_at:
+        type: datetime
+        required: false
+        nullable: true
+        description: When the decision was made
+      notes:
+        type: string
+        required: false
+        description: Approver rationale or rejection reason
+
+    state_machine:
+      description: Approval lifecycle. No transitions out of a decided state — a changed mind is a new manual approval demand, preserving the decision trail.
+      initial_state: pending
+      terminal_states: [approved, rejected]
+      states:
+        pending:
+          description: Demanded, undecided — blocks send
+        approved:
+          description: Named human approved under the stated policy
+        rejected:
+          description: Named human rejected; quote returns to rework
+      transitions:
+        - from: pending
+          to: approved
+          trigger: Named human approves
+        - from: pending
+          to: rejected
+          trigger: Named human rejects
+
+    relationships:
+      gates_quote:
+        target: quote
+        cardinality: many-to-one
+        description: The quote this approval gates
